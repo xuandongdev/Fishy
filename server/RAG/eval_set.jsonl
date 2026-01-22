@@ -1,0 +1,20 @@
+{"query_id":"q001","question":"Đi xe máy vượt đèn đỏ bị phạt bao nhiêu?","gold_ids":[207]}
+{"query_id":"q002","question":"Người điều khiển ô tô không thắt dây an toàn bị xử phạt thế nào?","gold_ids":[158]}
+{"query_id":"q003","question":"Vượt quá tốc độ 5km/h bị phạt bao nhiêu?","gold_ids":[149]}
+{"query_id":"q004","question":"Lùi xe trên đường ngược chiều","gold_ids":[172]}
+{"query_id":"q005","question":"Dừng xe trên đường cao tốc bị phạt thế nào?","gold_ids":[203]}
+{"query_id":"q006", "question":"Sử dụng còi trong khu vực đông dân từ 22h bị phạt thế nào?","gold_ids":[241]}
+{"query_id":"q007", "question":"Điều khiển xe chạy tốc độ thấp đi làn bên trái bị phạt thế nào?","gold_ids":[246]}
+{"query_id":"q008", "question":"Quay đầu xe ở nơi có biển cấm quay đầu bị phạt thế nào?","gold_ids":[253]}
+{"query_id":"q009", "question":"Giấy phép lái xe không phù hợp phương tiện điều khiển bị xử phạt thế nào?","gold_ids":[601]}
+{"query_id":"q010", "question":"Chở hàng quá tải trọng cho phép bị phạt thế nào?","gold_ids":[958]}
+{"query_id":"q011", "question":"Mở cửa xe không an toàn", "gold_ids":[194]}
+{"query_id":"q012", "question":"Điều khiển xe quá tốc độ 35km bị phạt bao nhiêu", "gold_ids":[201]}
+{"query_id":"q013", "question":"Không nhường đường cho xe ưu tiên khi có tín hiệu ưu tiên", "gold_ids":[197]}
+{"query_id":"q014", "question":"Điều khiển xe có nồng độ cồn vượt quá mức cho phép bị phạt thế nào?","gold_ids":[358]}
+{"query_id":"q015", "question":"Đỗ xe ở lòng đường", "gold_ids":[385]}
+{"query_id":"q016", "question":"Chống đối người thi hành công vụ bị phạt thế nào?","gold_ids":[466]}
+{"query_id":"q017", "question":"Điều khiển xe không gắn biển số", "gold_ids":[499]}
+{"query_id":"q018", "question":"Sử dụng xe không có còi", "gold_ids":[521]}
+{"query_id":"q019", "question":"Điều khiển xe đăng ký tạm thời quá thời hạn cho phép", "gold_ids":[529]}
+{"query_id":"q020", "question":"Lạng lách đánh võng bị phạt bao nhiêu", "gold_ids":[398]}

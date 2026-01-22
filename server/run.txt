@@ -1,0 +1,6 @@
+rag: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+yolo: uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+
+
+env: .venv\Scripts\activate
+D:/Fishy/.venv/Scripts/Activate.ps1
