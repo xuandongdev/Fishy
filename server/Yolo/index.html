@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO Detection Web</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 40px 20px;
+            margin: 0;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        .upload-section {
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            margin-bottom: 15px;
+        }
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background-color: #2980b9;
+        }
+        button:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        #status {
+            margin: 10px 0;
+            font-style: italic;
+            color: #e67e22;
+        }
+        #result-section {
+            margin-top: 20px;
+            display: none; /* Ẩn cho đến khi có kết quả */
+        }
+        #summary {
+            font-size: 18px;
+            font-weight: bold;
+            color: #27ae60;
+            margin-bottom: 15px;
+        }
+        #output-image {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            border: 2px solid #ecf0f1;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>🔍 Nhận Diện Hình Ảnh YOLO</h1>
+        
+        <div class="upload-section">
+            <input type="file" id="imageInput" accept="image/*">
+            <br>
+            <button id="detectBtn" onclick="uploadAndDetect()">Gửi ảnh nhận diện</button>
+        </div>
+
+        <div id="status"></div>
+
+        <div id="result-section">
+            <div id="summary"></div>
+            <img id="output-image" alt="Kết quả nhận diện" />
+        </div>
+    </div>
+
+    <script>
+        // Địa chỉ URL của server FastAPI (Sửa lại nếu bạn chạy port khác hoặc có link Cloudflare)
+        const SERVER_URL = "http://localhost:8001/detect";
+
+        async function uploadAndDetect() {
+            const fileInput = document.getElementById('imageInput');
+            const statusDiv = document.getElementById('status');
+            const resultSection = document.getElementById('result-section');
+            const summaryDiv = document.getElementById('summary');
+            const outputImage = document.getElementById('output-image');
+            const detectBtn = document.getElementById('detectBtn');
+
+            // 1. Kiểm tra xem người dùng đã chọn ảnh chưa
+            if (fileInput.files.length === 0) {
+                alert("Vui lòng chọn một file ảnh trước khi nhận diện!");
+                return;
+            }
+
+            const file = fileInput.files[0];
+
+            // 2. Chuẩn bị dữ liệu Form
+            const formData = new FormData();
+            formData.append("file", file); // Tên field không quan trọng do backend của bạn lặp qua form.values()
+
+            // 3. Cập nhật giao diện (Loading state)
+            statusDiv.innerText = "Đang gửi ảnh lên server và xử lý...";
+            resultSection.style.display = "none";
+            detectBtn.disabled = true;
+
+            try {
+                // 4. Gọi API
+                const response = await fetch(SERVER_URL, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Lỗi server: HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                // 5. Hiển thị kết quả
+                statusDiv.innerText = "";
+                summaryDiv.innerText = data.summary;
+
+                if (data.image_base64) {
+                    // Ghép tiền tố để thẻ <img> có thể đọc được định dạng Base64
+                    outputImage.src = "data:image/jpeg;base64," + data.image_base64;
+                    resultSection.style.display = "block";
+                }
+
+            } catch (error) {
+                console.error("Lỗi:", error);
+                statusDiv.innerText = "❌ Đã xảy ra lỗi: " + error.message;
+                statusDiv.style.color = "red";
+            } finally {
+                // Mở khóa nút bấm
+                detectBtn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

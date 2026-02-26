@@ -27,11 +27,17 @@ class _EditContentScreenState extends State<EditContentScreen> {
     _fetchContentWithEditor();
   }
 
+  @override
+  void dispose() {
+    _newContentController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchContentWithEditor() async {
     final viewModel = Provider.of<LawViewModel>(context, listen: false);
     final content = await viewModel.fetchContentWithEditor(_currentContent.sothutund);
 
-    if (content != null) {
+    if (content != null && mounted) {
       setState(() {
         _currentContent = content;
       });
@@ -52,6 +58,8 @@ class _EditContentScreenState extends State<EditContentScreen> {
       updatedContent,
       modifiedBy: modifiedById,
     );
+
+    if (!mounted) return;
 
     if (updatedModel != null) {
       setState(() {
@@ -75,63 +83,68 @@ class _EditContentScreenState extends State<EditContentScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final isLoading = Provider.of<LawViewModel>(context).isLoading;
+
     return Scaffold(
       resizeToAvoidBottomInset: true,
       appBar: AppBar(title: const Text("Chỉnh sửa nội dung")),
       body: isLoading
           ? const Center(child: CircularProgressIndicator())
           : SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                "Nội dung cũ:",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.grey[200],
-                  borderRadius: BorderRadius.circular(8),
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Nội dung cũ:",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        _currentContent.noidung,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      "Nội dung mới:",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _newContentController,
+                      maxLines: null,
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        hintText: "Nhập nội dung mới...",
+                      ),
+                      validator: (v) => (v == null || v.trim().isEmpty) ? "Không được để trống" : null,
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      "Người sửa: ${_currentContent.modified_by_name ?? 'Chưa cập nhật'}",
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Thời gian sửa: ${_currentContent.modified_at != null ? DateFormat('yyyy-MM-dd HH:mm:ss').format(_currentContent.modified_at!.toLocal()) : 'Chưa cập nhật'}",
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ],
                 ),
-                child: Text(
-                  _currentContent.noidung,
-                  style: const TextStyle(fontSize: 15),
-                ),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                "Nội dung mới:",
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _newContentController,
-                maxLines: null,
-              ),
-              const SizedBox(height: 24),
-              Text(
-                "Người sửa: ${_currentContent.modified_by_name ?? 'Chưa cập nhật'}",
-                style: const TextStyle(fontSize: 16),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                "Thời gian sửa: ${_currentContent.modified_at != null ? DateFormat('yyyy-MM-dd HH:mm:ss').format(_currentContent.modified_at!.toLocal()) : 'Chưa cập nhật'}",
-                style: const TextStyle(fontSize: 16),
-              ),
-            ],
-          ),
-        ),
-      ),
+            ),
       bottomNavigationBar: Padding(
         padding: const EdgeInsets.all(16),
         child: ElevatedButton.icon(

@@ -1,0 +1,58 @@
+Hết tất cả các lệnh cấm
+Cấm đi ngược chiều
+Cấm ô tô lưu thông
+Cấm ô tô rẽ phải
+Cấm ô tô rẽ trái
+Cấm xe máy
+Cấm xe tải, máy kéo, xe máy chuyên dùng, xe bán tải
+Cấm xe tải, máy kéo, xe máy chuyên dùng, xe bán tải có tải trọng cao hơn quy định
+Cấm xe ô tô chở khách
+Cấm người đi bộ
+Cấm xe có trọng lượng vượt quá quy định
+Hạn chế chiều cao
+Cấm rẽ trái
+Cấm rẽ phải
+Cấm quay đầu
+Cấm ô tô quay đầu
+Cấm xe rẽ trái và Cấm quay đầu
+Cấm vượt
+Tốc độ tối đa cho phép
+Cấm sử dụng còi
+Cấm dừng xe và Cấm đỗ xe
+Cấm đỗ xe
+Cấm rẽ trái và Cấm rẽ phải
+P.245a
+Chỉ cho phép rẽ trái
+Chỉ cho phép rẽ phải
+Chỉ được rẽ trái
+Yêu cầu đi vòng sang bên phải
+Yêu cầu đi vòng sang bên trái
+Nơi giao nhau chạy theo vòng xuyến
+Biển báo hướng đi một chiều
+Vị trí được quay đầu xe
+Bệnh viện
+Bến xe buýt
+Chiều cao an toàn
+Chỗ ngoặt nguy hiểm vòng bên trái
+Chỗ ngoặt nguy hiểm vòng bên phải
+Chỗ ngoặt nguy hiểm liên tiếp bên trái
+Chỗ ngoặt nguy hiểm liên tiếp bên phải
+Đường bị thu hẹp bên trái
+Đường bị thu hẹp bên phải
+Giao lộ (1)
+Giao lộ (2)
+Giao lộ (3)
+Giao với đường không ưu tiên (1)
+Giao với đường không ưu tiên (2)
+Giao với đường không ưu tiên (3)
+Giao nhau với đường ưu tiên
+Giao nhau có tín hiệu đèn
+Giao nhau với đường sắt có rào chắn
+Dốc xuống nguy hiểm
+Đường có gờ giảm tốc
+Cảnh báo người đi bộ cắt ngang
+Cảnh báo đường có trẻ em cắt ngang
+Cảnh báo công trường đang thi công
+Cảnh báo nguy hiểm
+Cảnh báo đường đôi
+Cảnh báo đi chậm

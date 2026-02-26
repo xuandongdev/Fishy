@@ -3,16 +3,14 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-class EmbeddingService
-{
-  // Supabase client dùng để cập nhật embedding vào database.
+class EmbeddingService {
   static final SupabaseClient supabase = Supabase.instance.client;
 
-  static const String hfModel = "intfloat/multilingual-e5-large";
-  static const String hfUrl = "https://router.huggingface.co/hf-inference/models/$hfModel";
+    static const String hfModel = "intfloat/multilingual-e5-large";
+  static const String hfUrl =
+      "https://router.huggingface.co/hf-inference/models/$hfModel";
 
-  static Future<List<double>> generateEmbedding(String content) async
-  {
+  static Future<List<double>> generateEmbedding(String content) async {
     final String inputText = "passage: $content";
     final hfToken = dotenv.get('HF_API_KEY', fallback: "");
 
@@ -22,46 +20,60 @@ class EmbeddingService
         'Authorization': 'Bearer $hfToken',
         'Content-Type': 'application/json',
       },
-      body: jsonEncode({
-        "inputs": inputText,
-      }),
+      body: jsonEncode({"inputs": inputText}),
     );
 
     if (response.statusCode == 200) {
-      final List<dynamic> data = jsonDecode(response.body);
-      return data.cast<double>();
-    } else if (response.statusCode == 503) {
-      print('Model đang khởi động, vui lòng đợi...');
-      throw Exception('Model đang khởi động. Hãy thử lại sau vài giây.');
-    } else {
-      throw Exception('Lỗi Hugging Face API: ${response.body}');
+      final dynamic decoded = jsonDecode(response.body);
+
+      // HF đôi khi trả về:
+      // - [float, float, ...]
+      // - [[float, float, ...]]  (nested)
+      List<dynamic> vec;
+      if (decoded is List && decoded.isNotEmpty && decoded.first is List) {
+        vec = List<dynamic>.from(decoded.first as List);
+      } else if (decoded is List) {
+        vec = List<dynamic>.from(decoded);
+      } else {
+        throw Exception("HF trả về format không hợp lệ: ${response.body}");
+      }
+
+      return vec.map((e) => (e as num).toDouble()).toList();
     }
+
+    if (response.statusCode == 503) {
+      throw Exception('Model HF đang khởi động. Thử lại sau vài giây.');
+    }
+
+    throw Exception('Lỗi Hugging Face API: ${response.body}');
   }
 
-  /// Đồng bộ các dòng chưa có embedding và cập nhật
   static Future<void> generateAndUpdateAllEmbeddings() async {
     final rows = await supabase
         .from('noidung')
         .select('sothutund, noidung')
-        .isFilter('embedding', null);
+        // tuỳ version supabase_flutter:
+        // .is_('embedding', null);
+        .filter('embedding', 'is', null);
 
-    for (var row in rows) {
-      final id = row['sothutund'];
-      final content = row['noidung'];
+    for (final row in rows) {
+      final int id = row['sothutund'] as int;
+      final String content = (row['noidung'] ?? '') as String;
       await generateAndUpdateOneEmbedding(id, content);
     }
   }
 
-  /// Sinh embedding cho một bản ghi `sothutund` cụ thể và cập nhật trường
-  /// `embedding` tương ứng trong database.
-  static Future<void> generateAndUpdateOneEmbedding(int sothutund, String noidung) async {
+  static Future<void> generateAndUpdateOneEmbedding(
+      int sothutund, String noidung) async {
     try {
       final embedding = await generateEmbedding(noidung);
-      await supabase.from('noidung').update({
-        'embedding': embedding,
-      }).eq('sothutund', sothutund);
+      await supabase
+          .from('noidung')
+          .update({'embedding': embedding}).eq('sothutund', sothutund);
+      // ignore: avoid_print
       print('Đã cập nhật embedding cho sothutund: $sothutund');
     } catch (e) {
+      // ignore: avoid_print
       print('Lỗi khi sinh embedding cho $sothutund: $e');
     }
   }
