@@ -26,7 +26,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Cấu hình đường dẫn Model & File Class
-MODEL_PATH = r'D:/Fishy/server/Yolo/model/best_copy.pt' 
+MODEL_PATH = r'D:/Fishy/server/Yolo/best11s.pt' 
 CLASSES_PATH = r'D:/Fishy/server/Yolo/classes_vie.txt'
 PORT_NUMBER = 8001  # Port của Server YOLO
 
@@ -222,6 +222,82 @@ async def detect(request: Request):
     except Exception as e:
         logger.error(f"Lỗi xử lý: {e}")
         return {"summary": f"Lỗi Server: {str(e)}", "image_base64": None}
+    
+
+@app.post("/detect-lite")
+async def detect_lite(request: Request):
+    global model, vn_classes_dict
+
+    if model is None:
+        return {"summary": "Lỗi: Model chưa sẵn sàng", "boxes": [], "w": 0, "h": 0}
+
+    try:
+        form = await request.form()
+        upload_file = None
+        for value in form.values():
+            if isinstance(value, StarletteUploadFile):
+                upload_file = value
+                break
+
+        if upload_file is None:
+            return {"summary": "Lỗi: Không tìm thấy file ảnh.", "boxes": [], "w": 0, "h": 0}
+
+        contents = await upload_file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if img is None:
+            return {"summary": "Lỗi: File bị hỏng/không phải ảnh.", "boxes": [], "w": 0, "h": 0}
+
+        h, w = img.shape[:2]
+
+        results = model(img, conf=0.25, verbose=False)
+
+        boxes_out = []
+        detected_names = []
+
+        for result in results:
+            if vn_classes_dict:
+                result.names = vn_classes_dict
+
+            if result.boxes is not None and len(result.boxes) > 0:
+                xyxy = result.boxes.xyxy.cpu().numpy()
+                conf = result.boxes.conf.cpu().numpy()
+                cls = result.boxes.cls.cpu().numpy()
+
+                for (x1, y1, x2, y2), c, cl in zip(xyxy, conf, cls):
+                    cl = int(cl)
+                    name = vn_classes_dict.get(cl, f"Class {cl}")
+                    detected_names.append(name)
+                    boxes_out.append({
+                        "x1": float(x1), "y1": float(y1),
+                        "x2": float(x2), "y2": float(y2),
+                        "conf": float(c),
+                        "name": name
+                    })
+
+        if detected_names:
+            counts = Counter(detected_names)
+            summary_parts = [f"{count} {name}" for name, count in counts.items()]
+            summary_text = "Phát hiện: " + ", ".join(summary_parts)
+        else:
+            summary_text = "Không phát hiện thấy vật thể nào."
+
+        # ✅ LOG giống detect()
+        logger.info(f"Kết quả: {summary_text}")
+        logger.info(f"Lite: boxes={len(boxes_out)} | w={w} h={h}")
+
+        # log preview vài bbox cho dễ debug
+        for i, b in enumerate(boxes_out[:5], start=1):
+            logger.info(
+                f"BOX#{i} name={b['name']} conf={b['conf']:.2f} "
+                f"xyxy=({b['x1']:.1f},{b['y1']:.1f},{b['x2']:.1f},{b['y2']:.1f})"
+            )
+
+        return {"summary": summary_text, "boxes": boxes_out, "w": w, "h": h}
+
+    except Exception as e:
+        logger.error(f"Lỗi xử lý detect-lite: {e}")
+        return {"summary": f"Lỗi Server: {str(e)}", "boxes": [], "w": 0, "h": 0}
 
 if __name__ == "__main__":
     import uvicorn

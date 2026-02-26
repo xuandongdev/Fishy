@@ -1,4 +1,3 @@
-
 import 'package:flutter/cupertino.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../Models/LawModel.dart';
@@ -34,17 +33,15 @@ class LawViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTrangThai(String sohieu, int newTrangThai) async {
-    try {
-      await Supabase.instance.client
-          .from('vanbanphapluat')
-          .update({'matrangthai': newTrangThai})
-          .eq('sohieuvanban', sohieu);
-      await fetchVanBan();
-    } catch (e) {
-      print("Lỗi khi cập nhật trạng thái: $e");
-    }
+  Future<void> updateTrangThai(String sohieu, String newTrangThai) async {
+    await Supabase.instance.client
+        .from('vanbanphapluat')
+        .update({'trangthai': newTrangThai})
+        .eq('sohieuvanban', sohieu);
+    await fetchVanBan();
   }
+
+
 
   Future<void> updateVanBan(LawModel vb) async {
     try{

@@ -1,35 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:fishy/Models/AddLawModel.dart';
+import '../Models/AddLawModel.dart';
 
 class AddLawVM extends ChangeNotifier {
   final SupabaseClient supabase = Supabase.instance.client;
 
   List<Map<String, dynamic>> coQuanList = [];
   List<Map<String, dynamic>> loaiVanBanList = [];
-  List<Map<String, dynamic>> trangThaiList = [];
 
   int? selectedCoQuan;
   int? selectedLoaiVanBan;
-  int? selectedTrangThai;
+
+  // ✅ 2 option cố định IN HOA
+  final List<String> trangThaiOptions = const [
+    'CÒN HIỆU LỰC',
+    'HẾT HIỆU LỰC',
+  ];
+
+  String? selectedTrangThai;
 
   AddLawVM() {
-    _fetchDropdownData();
+    fetchDropdownData();
+    // default trạng thái
+    selectedTrangThai = trangThaiOptions.first;
   }
 
-  Future<void> _fetchDropdownData() async {
+  Future<void> fetchDropdownData() async {
     try {
       final coQuanResponse = await supabase.from('coquanbanhanh').select();
       final loaiVanBanResponse = await supabase.from('loaivanban').select();
-      final trangThaiResponse = await supabase.from('trangthai').select();
 
       coQuanList = List<Map<String, dynamic>>.from(coQuanResponse);
       loaiVanBanList = List<Map<String, dynamic>>.from(loaiVanBanResponse);
-      trangThaiList = List<Map<String, dynamic>>.from(trangThaiResponse);
 
       notifyListeners();
     } catch (e) {
-      print('Lỗi tải dữ liệu dropdown: $e');
+      debugPrint('Lỗi tải dropdown: $e');
     }
   }
 
@@ -38,7 +44,7 @@ class AddLawVM extends ChangeNotifier {
       await supabase.from('vanbanphapluat').insert(law.toMap());
       return true;
     } catch (e) {
-      print('Lỗi khi thêm luật: $e');
+      debugPrint('Lỗi khi thêm văn bản: $e');
       return false;
     }
   }
@@ -53,9 +59,8 @@ class AddLawVM extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setSelectedTrangThai(int? value) {
+  void setSelectedTrangThai(String? value) {
     selectedTrangThai = value;
     notifyListeners();
   }
 }
-

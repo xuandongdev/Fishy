@@ -1,16 +1,16 @@
 import 'dart:convert';
-import 'dart:io'; // Giữ lại để dùng File cho Mobile, nhưng sẽ bọc kỹ
-import 'package:flutter/foundation.dart'; // Để dùng kIsWeb
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 
-// Import các file nội bộ
 import '../Models/ChatMessages.dart';
 import 'package:fishy/Themes/ThemeData.dart';
 import 'package:fishy/ViewModels/ChatVM.dart';
 import 'package:fishy/Widgets/CustomAppBar.dart';
 import '../Widgets/TypingIndicator.dart';
+import 'RealtimeDetectScreen.dart';
 
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key});
@@ -28,21 +28,20 @@ class ChatMessagesWidget extends StatefulWidget {
   const ChatMessagesWidget({super.key});
 
   @override
-  _ChatMessagesWidgetState createState() => _ChatMessagesWidgetState();
+  State<ChatMessagesWidget> createState() => _ChatMessagesWidgetState();
 }
 
 class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
   final TextEditingController textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
-  // SỬA: Dùng XFile thay vì File để tương thích Web
-  XFile? _pendingImage;
+  XFile? _pendingImage;              // chỉ dùng cho Gallery
+  Uint8List? _pendingImageBytes;     // preview (chạy cả web/mobile)
 
   @override
   Widget build(BuildContext context) {
     return Consumer<ChatViewModel>(
       builder: (context, chatVM, _) {
-        // Tự động cuộn xuống
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_scrollController.hasClients) {
             _scrollController.animateTo(
@@ -61,7 +60,6 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
                 itemCount: chatVM.messages.length,
                 itemBuilder: (context, index) {
                   final message = chatVM.messages[index];
-                  // Tách logic hiển thị để code gọn hơn
                   return _buildSingleMessage(message);
                 },
               ),
@@ -74,18 +72,13 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
-  // Widget hiển thị 1 dòng tin nhắn (Text hoặc Ảnh)
   Widget _buildSingleMessage(ChatMessage message) {
-    Widget content;
-
-    if (message.type == MessageType.image) {
-      content = _buildImageContent(message);
-    } else {
-      content = Text(
-        message.text,
-        style: TextStyle(color: message.isUser ? Colors.white : Colors.black87),
-      );
-    }
+    final Widget content = (message.type == MessageType.image)
+        ? _buildImageContent(message)
+        : Text(
+      message.text,
+      style: TextStyle(color: message.isUser ? Colors.white : Colors.black87),
+    );
 
     return Align(
       alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -103,7 +96,6 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
               ),
               child: content,
             ),
-            // Thời gian
             Padding(
               padding: const EdgeInsets.only(top: 2, right: 4, left: 4),
               child: Text(
@@ -117,44 +109,41 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
-  // Xử lý hiển thị ảnh trong tin nhắn (An toàn cho Web)
   Widget _buildImageContent(ChatMessage message) {
-    // 1. Ưu tiên hiển thị từ Bytes (vừa upload hoặc từ memory) -> Chạy được mọi nền tảng
     if (message.imageBytes != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.memory(
           message.imageBytes!,
           fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.white),
+          errorBuilder: (_, __, ___) => const Icon(Icons.broken_image, color: Colors.white),
         ),
       );
     }
-    // 2. Hiển thị từ Base64 (Server trả về)
-    else if (message.imageBase64 != null) {
+
+    if (message.imageBase64 != null && message.imageBase64!.isNotEmpty) {
       try {
         final bytes = base64Decode(message.imageBase64!);
         return ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Image.memory(bytes, fit: BoxFit.contain),
         );
-      } catch (e) {
+      } catch (_) {
         return const Text("Lỗi ảnh", style: TextStyle(color: Colors.red));
       }
     }
+
     return const SizedBox.shrink();
   }
 
-  // Khu vực nhập liệu
   Widget _buildInputArea(ChatViewModel chatVM) {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.only(top: 8, bottom: 8), // Thêm padding bottom
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (_pendingImage != null) _buildPendingImagePreview(),
-
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -177,13 +166,13 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
                     fillColor: Colors.grey[200],
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
-                  onSubmitted: (value) => _sendMessage(chatVM),
+                  onSubmitted: (_) => _sendMessage(chatVM),
                 ),
               ),
               IconButton(
                 icon: Icon(
                   Icons.send,
-                  color: (textController.text.isNotEmpty || _pendingImage != null)
+                  color: (textController.text.trim().isNotEmpty || _pendingImage != null)
                       ? AppTheme.navyBlue
                       : Colors.grey,
                 ),
@@ -196,7 +185,6 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
-  // Widget xem trước ảnh chuẩn bị gửi (Fix lỗi Web ở đây)
   Widget _buildPendingImagePreview() {
     return Padding(
       padding: const EdgeInsets.only(left: 16, bottom: 8),
@@ -207,17 +195,19 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
             child: SizedBox(
               height: 100,
               width: 100,
-              // LOGIC HIỂN THỊ ẢNH PREVIEW QUAN TRỌNG
-              child: kIsWeb
-                  ? Image.network(_pendingImage!.path, fit: BoxFit.cover) // Web dùng network (blob)
-                  : Image.file(File(_pendingImage!.path), fit: BoxFit.cover), // Mobile dùng File
+              child: _pendingImageBytes != null
+                  ? Image.memory(_pendingImageBytes!, fit: BoxFit.cover)
+                  : const SizedBox.shrink(),
             ),
           ),
           Positioned(
             top: 2,
             right: 2,
             child: GestureDetector(
-              onTap: () => setState(() => _pendingImage = null),
+              onTap: () => setState(() {
+                _pendingImage = null;
+                _pendingImageBytes = null;
+              }),
               child: Container(
                 padding: const EdgeInsets.all(2),
                 decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
@@ -230,16 +220,17 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
-  // --- LOGIC ---
-
   void _sendMessage(ChatViewModel chatVM) {
     final text = textController.text.trim();
     if (text.isEmpty && _pendingImage == null) return;
 
+    // Gallery flow: bấm Send mới gửi YOLO
     if (_pendingImage != null) {
-      // Gửi XFile thẳng sang ViewModel
       chatVM.sendImageFile(_pendingImage!);
-      setState(() => _pendingImage = null);
+      setState(() {
+        _pendingImage = null;
+        _pendingImageBytes = null;
+      });
     }
 
     if (text.isNotEmpty) {
@@ -251,24 +242,39 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
   void _showImageSourceActionSheet() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (context) => SafeArea(
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
         child: Wrap(
           children: [
             ListTile(
               leading: const Icon(Icons.photo_library),
-              title: const Text('Thư viện ảnh'),
+              title: const Text('Tải ảnh lên (Gallery)'),
               onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.gallery);
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.gallery, autoDetect: false);
               },
             ),
             ListTile(
               leading: const Icon(Icons.camera_alt),
-              title: const Text('Chụp ảnh'),
+              title: const Text('Chụp để nhận diện'),
               onTap: () {
-                Navigator.pop(context);
-                _pickImage(ImageSource.camera);
+                Navigator.pop(ctx);
+                _pickImage(ImageSource.camera, autoDetect: true); // chụp -> detect ngay
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.videocam),
+              title: const Text('Nhận diện Realtime'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const RealtimeDetectScreen(),
+                  ),
+                );
               },
             ),
           ],
@@ -277,18 +283,69 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  Future<void> _pickImage(ImageSource source, {required bool autoDetect}) async {
     final picker = ImagePicker();
     try {
       final XFile? picked = await picker.pickImage(source: source);
-      if (picked != null) {
+      if (picked == null) return;
+
+      // đọc bytes để preview/toast nhanh, chạy cả web/mobile
+      final bytes = await picked.readAsBytes();
+
+      if (!autoDetect) {
+        // Gallery: chỉ preview
         setState(() {
-          _pendingImage = picked; // Lưu XFile trực tiếp
+          _pendingImage = picked;
+          _pendingImageBytes = bytes;
         });
+        return;
       }
+
+      // Camera: detect ngay + toast top
+      final chatVM = context.read<ChatViewModel>();
+      final resultText = await chatVM.detectFromCamera(picked);
+
+      if (!mounted) return;
+      _showTopToast("ĐÃ PHÁT HIỆN THẤY: ${resultText.toUpperCase()}");
     } catch (e) {
-      print("Lỗi chọn ảnh: $e");
+      if (!mounted) return;
+      _showTopToast("LỖI CHỌN ẢNH: $e");
     }
+  }
+
+  // ✅ Toast top giống app hiện nay (Overlay)
+  void _showTopToast(String msg) {
+    final overlay = Overlay.of(context);
+    if (overlay == null) return;
+
+    final topPadding = MediaQuery.of(context).padding.top;
+
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: topPadding + 12,
+        left: 12,
+        right: 12,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.85),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              msg,
+              style: const TextStyle(color: Colors.white, fontSize: 14),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), entry.remove);
   }
 
   String _formatTime(DateTime timestamp) {

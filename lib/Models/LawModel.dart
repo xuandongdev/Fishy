@@ -1,42 +1,70 @@
-import 'package:intl/intl.dart';
-class LawModel
-{
+class LawModel {
+  /// Schema: vanbanphapluat
+  /// - sohieuvanban (PK)
+  /// - tenvanban
+  /// - trangthai (TEXT)  -> "Còn hiệu lực" | "Hết hiệu lực"
+  /// - ngayky (DATE)
+  /// - ngaycohieuluc (DATE)
+  /// - macoquan (INT, nullable)
+  /// - maloai (INT, nullable)
+
   final String sohieu;
   final String ten;
-  final int matrangthai;
+  final String trangthai;
   final DateTime ngayKy;
   final DateTime ngayCoHieuLuc;
+  final int? macoquan;
+  final int? maloai;
 
-  LawModel
-  ({
+  LawModel({
     required this.sohieu,
     required this.ten,
-    required this.matrangthai,
+    required this.trangthai,
     required this.ngayKy,
     required this.ngayCoHieuLuc,
+    this.macoquan,
+    this.maloai,
   });
 
-  factory LawModel.fromMap(Map<String, dynamic> map)
-  {
-    return LawModel
-    (
-      sohieu: map['sohieuvanban'] ?? '',
-      ten: map['tenvanban'] ?? '',
-      matrangthai: map['matrangthai'] ?? 1,
-      ngayKy: map['ngayky'] != null ? DateTime.parse(map['ngayky']) : DateTime.now(),
-      ngayCoHieuLuc: map['ngaycohieuluc'] != null ? DateTime.parse(map['ngaycohieuluc']) : DateTime.now(),
+  factory LawModel.fromMap(Map<String, dynamic> map) {
+    final ngayKyRaw = map['ngayky'];
+    final ngayHLRaw = map['ngaycohieuluc'];
+
+    DateTime parseDate(dynamic v) {
+      if (v == null) return DateTime.fromMillisecondsSinceEpoch(0);
+      if (v is DateTime) return v;
+      return DateTime.parse(v.toString());
+    }
+
+    return LawModel(
+      sohieu: (map['sohieuvanban'] ?? '').toString(),
+      ten: (map['tenvanban'] ?? '').toString(),
+      trangthai: (map['trangthai'] ?? '').toString(),
+      ngayKy: parseDate(ngayKyRaw),
+      ngayCoHieuLuc: parseDate(ngayHLRaw),
+      macoquan: map['macoquan'] is int ? map['macoquan'] as int : int.tryParse('${map['macoquan']}'),
+      maloai: map['maloai'] is int ? map['maloai'] as int : int.tryParse('${map['maloai']}'),
     );
   }
 
-  Map<String, dynamic> toMap()
-  {
-    final dateFormat = DateFormat('yyyy-MM-dd');
-    return {
-      'sohieuvanban': sohieu,
+  /// Dùng cho UPDATE/INSERT
+  Map<String, dynamic> toMap() {
+    String toDateOnly(DateTime d) => d.toIso8601String().split('T').first;
+
+    final m = <String, dynamic>{
+      // Không bắt buộc đưa PK vào UPDATE, vì bạn eq theo sohieu rồi.
+      // 'sohieuvanban': sohieu,
       'tenvanban': ten,
-      'matrangthai': matrangthai,
-      'ngayky': dateFormat.format(ngayKy),
-      'ngaycohieuluc': dateFormat.format(ngayCoHieuLuc),
+      'trangthai': trangthai,
+      'ngayky': toDateOnly(ngayKy),
+      'ngaycohieuluc': toDateOnly(ngayCoHieuLuc),
+      'macoquan': macoquan,
+      'maloai': maloai,
     };
+
+    // nếu bạn không muốn ghi đè null lên DB, bật dòng dưới:
+    // m.removeWhere((k, v) => v == null);
+
+    return m;
   }
 }

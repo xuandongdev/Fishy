@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fishy/Models/AddLawModel.dart';
-import 'package:fishy/ViewModels/AddLawVM.dart';
+import '../Models/AddLawModel.dart';
+import '../ViewModels/AddLawVM.dart';
 
 class AddLawScreen extends StatefulWidget {
+  const AddLawScreen({super.key});
+
   @override
-  _AddLawScreenState createState() => _AddLawScreenState();
+  State<AddLawScreen> createState() => _AddLawScreenState();
 }
 
 class _AddLawScreenState extends State<AddLawScreen> {
@@ -13,13 +15,23 @@ class _AddLawScreenState extends State<AddLawScreen> {
   final TextEditingController tenVanBanController = TextEditingController();
   final TextEditingController ngayKyController = TextEditingController();
   final TextEditingController ngayHieuLucController = TextEditingController();
+
   DateTime? _ngayKy;
   DateTime? _ngayHieuLuc;
 
   bool isLoading = false;
 
+  @override
+  void dispose() {
+    sohieuController.dispose();
+    tenVanBanController.dispose();
+    ngayKyController.dispose();
+    ngayHieuLucController.dispose();
+    super.dispose();
+  }
+
   Future<void> _pickDate(BuildContext context, bool isNgayKy) async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
       firstDate: DateTime(1900),
@@ -39,10 +51,9 @@ class _AddLawScreenState extends State<AddLawScreen> {
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
-    final lawVM = Provider.of<AddLawVM>(context);
+    final addLawVM = Provider.of<AddLawVM>(context);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Thêm Văn bản mới')),
@@ -54,6 +65,7 @@ class _AddLawScreenState extends State<AddLawScreen> {
             children: [
               _buildTextField(sohieuController, 'Số hiệu văn bản'),
               _buildTextField(tenVanBanController, 'Tên văn bản'),
+
               ListTile(
                 title: Text(
                   _ngayKy == null
@@ -75,35 +87,33 @@ class _AddLawScreenState extends State<AddLawScreen> {
               ),
 
               const SizedBox(height: 10),
-              const Text('Trạng thái', style: TextStyle(fontWeight: FontWeight.bold)),
-              DropdownButton<int>(
-                value: lawVM.selectedTrangThai,
-                items: lawVM.trangThaiList.isNotEmpty
-                    ? lawVM.trangThaiList.map((trangthai) {
-                  return DropdownMenuItem<int>(
-                    value: trangthai['matrangthai'],
-                    child: Text(trangthai['tentrangthai']),
+              const SizedBox(height: 10),
+              const Text('Chọn trạng thái', style: TextStyle(fontWeight: FontWeight.bold)),
+              DropdownButton<String>(
+                value: addLawVM.selectedTrangThai,
+                items: addLawVM.trangThaiOptions.map((s) {
+                  return DropdownMenuItem<String>(
+                    value: s,
+                    child: Text(s),
                   );
-                }).toList()
-                    : [],
-                onChanged: lawVM.setSelectedTrangThai,
+                }).toList(),
+                onChanged: addLawVM.setSelectedTrangThai,
                 isExpanded: true,
-                hint: const Text('Chọn trạng thái'),
               ),
 
               const SizedBox(height: 10),
               const Text('Cơ quan ban hành', style: TextStyle(fontWeight: FontWeight.bold)),
               DropdownButton<int>(
-                value: lawVM.selectedCoQuan,
-                items: lawVM.coQuanList.isNotEmpty
-                    ? lawVM.coQuanList.map((coQuan) {
+                value: addLawVM.selectedCoQuan,
+                items: addLawVM.coQuanList.isNotEmpty
+                    ? addLawVM.coQuanList.map((coQuan) {
                   return DropdownMenuItem<int>(
                     value: coQuan['macoquan'],
-                    child: Text(coQuan['tencoquan']),
+                    child: Text((coQuan['tencoquan'] ?? '').toString()),
                   );
                 }).toList()
                     : [],
-                onChanged: lawVM.setSelectedCoQuan,
+                onChanged: addLawVM.setSelectedCoQuan,
                 isExpanded: true,
                 hint: const Text('Chọn cơ quan'),
               ),
@@ -111,64 +121,70 @@ class _AddLawScreenState extends State<AddLawScreen> {
               const SizedBox(height: 10),
               const Text('Loại văn bản', style: TextStyle(fontWeight: FontWeight.bold)),
               DropdownButton<int>(
-                value: lawVM.selectedLoaiVanBan,
-                items: lawVM.loaiVanBanList.isNotEmpty
-                    ? lawVM.loaiVanBanList.map((loai) {
+                value: addLawVM.selectedLoaiVanBan,
+                items: addLawVM.loaiVanBanList.isNotEmpty
+                    ? addLawVM.loaiVanBanList.map((loai) {
                   return DropdownMenuItem<int>(
                     value: loai['maloai'],
-                    child: Text(loai['tenloai']),
+                    child: Text((loai['tenloai'] ?? '').toString()),
                   );
                 }).toList()
                     : [],
-                onChanged: lawVM.setSelectedLoaiVanBan,
+                onChanged: addLawVM.setSelectedLoaiVanBan,
                 isExpanded: true,
                 hint: const Text('Chọn loại văn bản'),
               ),
 
               const SizedBox(height: 20),
               ElevatedButton(
-                onPressed: isLoading ? null : () async {
-                  if (!validateInputs(lawVM)) return;
+                onPressed: isLoading
+                    ? null
+                    : () async {
+                  if (!validateInputs(addLawVM)) return;
 
                   setState(() => isLoading = true);
 
                   final law = AddLawModel(
-                    sohieu: sohieuController.text,
-                    tenVanBan: tenVanBanController.text,
-                    ngayKy: ngayKyController.text,
-                    ngayHieuLuc: ngayHieuLucController.text,
-                    matrangthai: lawVM.selectedTrangThai!,
-                    macoquan: lawVM.selectedCoQuan!,
-                    maloai: lawVM.selectedLoaiVanBan!,
+                    sohieu: sohieuController.text.trim(),
+                    tenVanBan: tenVanBanController.text.trim(),
+                    ngayKy: ngayKyController.text.trim(),
+                    ngayHieuLuc: ngayHieuLucController.text.trim(),
+                    trangThai: (addLawVM.selectedTrangThai ?? 'CÒN HIỆU LỰC').trim(),
+                    macoquan: addLawVM.selectedCoQuan!,
+                    maloai: addLawVM.selectedLoaiVanBan!,
                   );
 
-                  bool success = await lawVM.addLaw(law);
-
+                  final success = await addLawVM.addLaw(law);
                   setState(() => isLoading = false);
 
                   if (success) {
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                       content: Text('Thêm văn bản thành công!'),
                       backgroundColor: Colors.green,
                     ));
-                    clearInputs();
+                    clearInputs(addLawVM);
 
                     Future.delayed(const Duration(milliseconds: 400), () {
+                      if (!mounted) return;
                       Navigator.pushNamed(context, "/addContent", arguments: law.sohieu);
                     });
-                  }
-
-                  else {
-                    setState(() => isLoading = false);
+                  } else {
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                       content: Text('Lỗi khi thêm văn bản!'),
                       backgroundColor: Colors.red,
                     ));
                   }
                 },
-                child: isLoading ? const CircularProgressIndicator() : const Text('Thêm Văn bản'),
+                child: isLoading
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+                    : const Text('Thêm Văn bản'),
               ),
-
             ],
           ),
         ),
@@ -176,26 +192,24 @@ class _AddLawScreenState extends State<AddLawScreen> {
     );
   }
 
-
-  Widget _buildTextField(TextEditingController controller, String label, {bool isDate = false}) {
+  Widget _buildTextField(TextEditingController controller, String label) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: TextField(
         controller: controller,
         decoration: InputDecoration(
           labelText: label,
-          border: OutlineInputBorder(),
+          border: const OutlineInputBorder(),
         ),
-        keyboardType: isDate ? TextInputType.datetime : TextInputType.text,
       ),
     );
   }
 
   bool validateInputs(AddLawVM lawVM) {
-    if (sohieuController.text.isEmpty ||
-        tenVanBanController.text.isEmpty ||
-        ngayKyController.text.isEmpty ||
-        ngayHieuLucController.text.isEmpty ||
+    if (sohieuController.text.trim().isEmpty ||
+        tenVanBanController.text.trim().isEmpty ||
+        ngayKyController.text.trim().isEmpty ||
+        ngayHieuLucController.text.trim().isEmpty ||
         lawVM.selectedTrangThai == null ||
         lawVM.selectedCoQuan == null ||
         lawVM.selectedLoaiVanBan == null) {
@@ -208,10 +222,19 @@ class _AddLawScreenState extends State<AddLawScreen> {
     return true;
   }
 
-  void clearInputs() {
+  void clearInputs(AddLawVM vm) {
     sohieuController.clear();
     tenVanBanController.clear();
     ngayKyController.clear();
     ngayHieuLucController.clear();
+    setState(() {
+      _ngayKy = null;
+      _ngayHieuLuc = null;
+    });
+
+    // reset dropdown nếu muốn
+    vm.setSelectedTrangThai(vm.trangThaiOptions.first);
+    vm.setSelectedCoQuan(null);
+    vm.setSelectedLoaiVanBan(null);
   }
 }
