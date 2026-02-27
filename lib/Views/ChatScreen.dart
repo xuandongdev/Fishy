@@ -10,6 +10,7 @@ import 'package:fishy/Themes/ThemeData.dart';
 import 'package:fishy/ViewModels/ChatVM.dart';
 import 'package:fishy/Widgets/CustomAppBar.dart';
 import '../Widgets/TypingIndicator.dart';
+import '../Widgets/BBoxPainter.dart';
 import 'RealtimeDetectScreen.dart';
 
 class ChatScreen extends StatelessWidget {
@@ -109,8 +110,24 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
     );
   }
 
+  // =======================================================================
+  // ĐÃ SỬA: CẬP NHẬT HÀM NÀY ĐỂ VẼ Bounding Box bằng YoloImageViewer
+  // =======================================================================
   Widget _buildImageContent(ChatMessage message) {
-    if (message.imageBytes != null) {
+    // 1. NẾU TIN NHẮN CÓ TOẠ ĐỘ -> VẼ KHUNG (Chỉ dành cho tin nhắn của Bot)
+    if (message.yoloBoxes != null && message.yoloBoxes!.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: YoloImageViewer(
+          imageBytes: message.imageBytes!,
+          boxes: message.yoloBoxes!,
+          originalWidth: message.imageW ?? 0.0,
+          originalHeight: message.imageH ?? 0.0,
+        ),
+      );
+    } 
+    // 2. NẾU LÀ ẢNH BÌNH THƯỜNG DO USER GỬI -> HIỂN THỊ BÌNH THƯỜNG
+    else if (message.imageBytes != null) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.memory(
@@ -121,6 +138,7 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
       );
     }
 
+    // 3. FALLBACK: Vẫn giữ lại phần đọc Base64 nếu như sau này bạn dùng lại API cũ
     if (message.imageBase64 != null && message.imageBase64!.isNotEmpty) {
       try {
         final bytes = base64Decode(message.imageBase64!);
@@ -135,6 +153,7 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
 
     return const SizedBox.shrink();
   }
+  // =======================================================================
 
   Widget _buildInputArea(ChatViewModel chatVM) {
     return Container(
@@ -306,7 +325,7 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
       final resultText = await chatVM.detectFromCamera(picked);
 
       if (!mounted) return;
-      _showTopToast("ĐÃ PHÁT HIỆN THẤY: ${resultText.toUpperCase()}");
+      _showTopToast("ĐĐ PHÁT HIỆN THẤY: ${resultText.toUpperCase()}");
     } catch (e) {
       if (!mounted) return;
       _showTopToast("LỖI CHỌN ẢNH: $e");

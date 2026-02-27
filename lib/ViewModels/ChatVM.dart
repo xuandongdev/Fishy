@@ -60,7 +60,7 @@ class ChatViewModel extends ChangeNotifier {
   }
 
   // =========================================================
-  // 2) GỬI ẢNH (Gallery) -> /detect
+  // GỬI ẢNH (Gallery) -> /detect-lite (CÁCH 1)
   // =========================================================
   Future<void> sendImageFile(XFile pickedFile) async {
     setTyping(true);
@@ -68,43 +68,48 @@ class ChatViewModel extends ChangeNotifier {
     try {
       final Uint8List bytes = await pickedFile.readAsBytes();
 
-      // Ảnh user (gallery)
-      messages.add(ChatMessage(
-        text: '',
-        isUser: true,
-        type: MessageType.image,
-        imageBytes: bytes,
-      ));
-      notifyListeners();
+      // 1. Chỉ tạo MỘT tin nhắn ảnh duy nhất (Tin nhắn của bot)
+      // Không đẩy tin nhắn User lên UI để tránh ảnh gốc hiển thị 2 lần.
+      
+      // Call YOLO detect-lite
+      final responseMap = await ChatService.uploadToYOLOLite(bytes, pickedFile.name);
+      final liteResponse = YoloLiteResponse.fromJson(responseMap);
 
-      // Call YOLO detect
-      final responseMap = await ChatService.uploadToYOLO(bytes, pickedFile.name);
-      final yoloResponse = YoloResponse.fromJson(responseMap);
+      // 2. Text bot (Summary)
+      messages.add(ChatMessage(text: liteResponse.summaryText.toUpperCase(), isUser: false));
 
-      // Text bot
-      messages.add(ChatMessage(text: yoloResponse.summaryText.toUpperCase(), isUser: false));
-
-      // Ảnh bbox (server trả base64)
-      if (yoloResponse.imageBase64 != null && yoloResponse.imageBase64!.isNotEmpty) {
+      // 3. Ảnh Bot trả về (Chính là ảnh gốc của User nhưng đính kèm Toạ độ)
+      if (liteResponse.boxes.isNotEmpty && liteResponse.width > 0) {
         messages.add(ChatMessage(
           text: '',
           isUser: false,
           type: MessageType.image,
-          imageBase64: yoloResponse.imageBase64,
+          imageBytes: bytes, // TÁI SỬ DỤNG byte ảnh gốc
+          yoloBoxes: liteResponse.boxes, // Gắn toạ độ vẽ khung
+          imageW: liteResponse.width,
+          imageH: liteResponse.height,
+        ));
+      } else {
+        // Nếu không phát hiện gì, vẫn in ra ảnh gốc
+        messages.add(ChatMessage(
+          text: '',
+          isUser: false,
+          type: MessageType.image,
+          imageBytes: bytes, 
         ));
       }
 
-      await _saveChatHistory("(GỬI ẢNH)", yoloResponse.summaryText);
+      await _saveChatHistory("(GỬI ẢNH)", liteResponse.summaryText);
     } catch (e) {
       messages.add(ChatMessage(text: "LỖI XỬ LÝ ẢNH: $e", isUser: false));
-      notifyListeners();
     } finally {
       setTyping(false);
+      notifyListeners();
     }
   }
 
   // =========================================================
-  // 3) CAMERA MODE (chụp 1 ảnh) -> /detect
+  // CAMERA MODE (chụp 1 ảnh) -> /detect-lite (CÁCH 1)
   // =========================================================
   Future<String> detectFromCamera(XFile pickedFile) async {
     setTyping(true);
@@ -112,36 +117,37 @@ class ChatViewModel extends ChangeNotifier {
     try {
       final Uint8List bytes = await pickedFile.readAsBytes();
 
-      // Ảnh user (camera)
-      messages.add(ChatMessage(
-        text: '',
-        isUser: true,
-        type: MessageType.image,
-        imageBytes: bytes,
-      ));
-      notifyListeners();
-
-      // Call YOLO detect
-      final responseMap = await ChatService.uploadToYOLO(bytes, pickedFile.name);
-      final yoloResponse = YoloResponse.fromJson(responseMap);
+      // Call YOLO detect-lite
+      final responseMap = await ChatService.uploadToYOLOLite(bytes, pickedFile.name);
+      final liteResponse = YoloLiteResponse.fromJson(responseMap);
 
       // Text bot
-      messages.add(ChatMessage(text: yoloResponse.summaryText.toUpperCase(), isUser: false));
+      messages.add(ChatMessage(text: liteResponse.summaryText.toUpperCase(), isUser: false));
 
-      // Ảnh bbox (server trả base64)
-      if (yoloResponse.imageBase64 != null && yoloResponse.imageBase64!.isNotEmpty) {
+      // Ảnh bbox
+      if (liteResponse.boxes.isNotEmpty && liteResponse.width > 0) {
         messages.add(ChatMessage(
           text: '',
           isUser: false,
           type: MessageType.image,
-          imageBase64: yoloResponse.imageBase64,
+          imageBytes: bytes,
+          yoloBoxes: liteResponse.boxes,
+          imageW: liteResponse.width,
+          imageH: liteResponse.height,
+        ));
+      } else {
+         messages.add(ChatMessage(
+          text: '',
+          isUser: false,
+          type: MessageType.image,
+          imageBytes: bytes,
         ));
       }
 
-      await _saveChatHistory("(CAMERA YOLO)", yoloResponse.summaryText);
+      await _saveChatHistory("(CAMERA YOLO)", liteResponse.summaryText);
       notifyListeners();
 
-      return yoloResponse.summaryText;
+      return liteResponse.summaryText;
     } catch (e) {
       final err = "LỖI NHẬN DIỆN: $e";
       messages.add(ChatMessage(text: err, isUser: false));

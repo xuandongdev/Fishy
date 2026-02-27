@@ -1,15 +1,13 @@
 import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:image/image.dart' as img;
 
 import '../Models/YoloBoxModel.dart';
 import '../Services/ChatService.dart';
+import '../Services/LocalNotiService.dart'; // IMPORT SERVICE THÔNG BÁO
 import '../ViewModels/ChatVM.dart';
 import '../Widgets/BBoxPainter.dart';
 
@@ -28,16 +26,12 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
   List<YoloBox> _boxes = [];
   double _imgW = 0, _imgH = 0;
 
-  Uint8List? _lastFrameJpeg;
-
   DateTime _lastSent = DateTime.fromMillisecondsSinceEpoch(0);
-  static const int throttleMs = 600;
+  static const int throttleMs = 600; // Khoảng cách giữa các lần gửi frame lên server
 
-  // Capture camera + bbox
-  final GlobalKey _boundaryKey = GlobalKey();
-  Uint8List? _autoAnnotatedPng;
-  bool _hadHit = false;
-  bool _captureBusy = false;
+  // --- Biến chống Spam Thông Báo ---
+  String _lastDetectedSummary = "";
+  DateTime _lastDetectTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
@@ -65,14 +59,10 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
       back,
       ResolutionPreset.medium,
       enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.yuv420, // iOS có thể trả bgra8888
+      imageFormatGroup: ImageFormatGroup.yuv420,
     );
 
     await c.initialize();
-
-    debugPrint("[RealtimeDetect] previewSize=${c.value.previewSize} "
-        "aspect=${c.value.aspectRatio}");
-
     await c.startImageStream(_onFrame);
 
     if (!mounted) return;
@@ -91,8 +81,6 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
       final Uint8List? jpegBytes = await cameraImageToJpeg(frame);
       if (jpegBytes == null) return;
 
-      _lastFrameJpeg = jpegBytes;
-
       final res = await ChatService.uploadToYOLOLite(jpegBytes, "frame.jpg");
       final sum = (res['summary'] ?? '').toString();
       final w = (res['w'] as num?)?.toDouble() ?? 0;
@@ -103,9 +91,6 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
           .map((e) => YoloBox.fromJson(Map<String, dynamic>.from(e)))
           .toList();
 
-      final ps = _controller?.value.previewSize;
-      debugPrint("[RealtimeDetect] _imgW/_imgH=($w, $h) previewSize=$ps boxes=${boxes.length}");
-
       if (!mounted) return;
 
       setState(() {
@@ -115,53 +100,63 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
         _boxes = boxes;
       });
 
-      // có bbox lần đầu -> auto capture ảnh đã vẽ bbox
-      if (boxes.isNotEmpty && !_hadHit) {
-        _hadHit = true;
-        _scheduleAutoCaptureAnnotated();
+      // ==========================================
+      // LOGIC TỰ ĐỘNG THÔNG BÁO & LƯU CHAT CHỐNG SPAM
+      // ==========================================
+      if (boxes.isNotEmpty && !sum.contains("Không phát hiện")) {
+        // Chỉ thông báo nếu: Là biển báo KHÁC với biển trước đó HOẶC đã trôi qua 5 GIÂY kể từ lần nhắc cuối
+        if (sum != _lastDetectedSummary || now.difference(_lastDetectTime).inSeconds > 5) {
+          _lastDetectedSummary = sum;
+          _lastDetectTime = now;
+
+          // 1. Lưu text vào Chat (Không có ảnh)
+          context.read<ChatViewModel>().pushYoloResultToChat(sum);
+
+          // 2. Hiện Toast Overlay trên màn hình
+          _showTopToast("PHÁT HIỆN: ${sum.toUpperCase()}");
+
+          // 3. Bắn thông báo đẩy (System Notification)
+          LocalNotiService.showWarningNotification(sum);
+        }
       }
 
-      // mất bbox -> reset để lần sau capture lại
-      if (boxes.isEmpty) {
-        _hadHit = false;
-        _autoAnnotatedPng = null;
-      }
     } finally {
       _processing = false;
     }
   }
 
-  void _scheduleAutoCaptureAnnotated() {
-    if (_captureBusy) return;
-    _captureBusy = true;
+  // Hàm hiện Toast Overlay (tương tự như trong ChatScreen)
+  void _showTopToast(String msg) {
+    final overlay = Overlay.of(context);
+    if (overlay == null) return;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      try {
-        if (!mounted) return;
-        final png = await _captureOverlayPng();
-        if (!mounted) return;
+    final topPadding = MediaQuery.of(context).padding.top;
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: topPadding + 12,
+        left: 12,
+        right: 12,
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Colors.redAccent.withOpacity(0.9), // Đổi màu cảnh báo cho nổi bật
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              msg,
+              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+      ),
+    );
 
-        if (png != null && png.isNotEmpty) {
-          setState(() => _autoAnnotatedPng = png);
-        }
-      } finally {
-        _captureBusy = false;
-      }
-    });
-  }
-
-  Future<Uint8List?> _captureOverlayPng() async {
-    try {
-      final boundary =
-      _boundaryKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
-      if (boundary == null) return null;
-
-      final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      return byteData?.buffer.asUint8List();
-    } catch (_) {
-      return null;
-    }
+    overlay.insert(entry);
+    Future.delayed(const Duration(seconds: 3), entry.remove);
   }
 
   Future<void> _stopStreamSafe() async {
@@ -178,7 +173,6 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
   Future<Uint8List?> cameraImageToJpeg(CameraImage image) async {
     try {
       final img.Image rgb;
-
       if (image.format.group == ImageFormatGroup.bgra8888) {
         rgb = _bgra8888ToImage(image);
       } else if (image.format.group == ImageFormatGroup.yuv420) {
@@ -186,7 +180,6 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
       } else {
         return null;
       }
-
       final jpg = img.encodeJpg(rgb, quality: 80);
       return Uint8List.fromList(jpg);
     } catch (e) {
@@ -266,13 +259,12 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
   }
 
   // ========================
-  // FULLSCREEN cover (không méo)
+  // FULLSCREEN cover (không cần RepaintBoundary nữa)
   // ========================
   Widget _buildCoverCameraWithBoxes(CameraController c) {
     final previewSize = c.value.previewSize;
     if (previewSize == null) return CameraPreview(c);
 
-    // previewSize hay trả landscape -> đảo cho đúng portrait
     final bool isLandscape = previewSize.width > previewSize.height;
     final double childW = isLandscape ? previewSize.height : previewSize.width;
     final double childH = isLandscape ? previewSize.width : previewSize.height;
@@ -283,17 +275,14 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
         child: SizedBox(
           width: childW,
           height: childH,
-          child: RepaintBoundary(
-            key: _boundaryKey,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                CameraPreview(c),
-                CustomPaint(
-                  painter: BBoxPainter(boxes: _boxes, imgW: _imgW, imgH: _imgH),
-                ),
-              ],
-            ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CameraPreview(c),
+              CustomPaint(
+                painter: BBoxPainter(boxes: _boxes, imgW: _imgW, imgH: _imgH),
+              ),
+            ],
           ),
         ),
       ),
@@ -307,22 +296,6 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
     Navigator.pop(context);
   }
 
-  Future<void> _accept() async {
-    final canAccept = _boxes.isNotEmpty && (_autoAnnotatedPng != null || !_captureBusy);
-    if (!canAccept) return;
-
-    final annotated = _autoAnnotatedPng ?? await _captureOverlayPng();
-    if (annotated == null || annotated.isEmpty) return;
-
-    // ✅ chỉ gửi ảnh kết quả + summary
-    context.read<ChatViewModel>().pushRealtimeResultToChatResultOnly(
-      summary: _summary,
-      annotatedPng: annotated,
-    );
-
-    await _close();
-  }
-
   @override
   void dispose() {
     _stopStreamSafe();
@@ -334,9 +307,7 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
   @override
   Widget build(BuildContext context) {
     final c = _controller;
-
     final topPad = MediaQuery.of(context).padding.top;
-    final bool canAccept = _boxes.isNotEmpty && (_autoAnnotatedPng != null || !_captureBusy);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -366,23 +337,18 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
             ),
           ),
 
-          // buttons
+          // Chỉ giữ lại nút Đóng (Vì hệ thống tự động lưu vào Chat rồi)
           Positioned(
             left: 0,
             right: 0,
             bottom: 26,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 _roundBtn(
                   icon: Icons.close,
                   onTap: _close,
                   enabled: true,
-                ),
-                _roundBtn(
-                  icon: Icons.check,
-                  onTap: _accept,
-                  enabled: canAccept,
                 ),
               ],
             ),

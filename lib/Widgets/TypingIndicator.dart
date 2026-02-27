@@ -55,7 +55,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
           builder: (context, child) => Transform.translate(
             offset: Offset(0, -_bounceAnimation.value),
             child: Text(
-              '🤖 Fishy đang soạn tin$dots',
+              'Fishy đang soạn tin$dots',
               style: const TextStyle(
                 color: Colors.grey,
                 fontStyle: FontStyle.italic,
