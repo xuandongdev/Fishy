@@ -47,6 +47,6 @@ app.*.map.json
 
 # Custom ignores
 lib/Configs/Constants.dart
-server/Yolo/venv/
+server/.venv
 server/cloudflared.exe
 .env
