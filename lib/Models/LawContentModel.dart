@@ -10,6 +10,8 @@ class LawContentModel {
   final int? thuTu;
 
   final List<String>? rela;
+  final double? minKm;
+  final double? maxKm;
 
   final int? modifiedBy;
   final String? modifiedByName;
@@ -24,6 +26,8 @@ class LawContentModel {
     this.kyHieu,
     this.thuTu,
     this.rela,
+    this.minKm,
+    this.maxKm,
     this.modifiedBy,
     this.modifiedByName,
     this.modifiedAt,
@@ -73,6 +77,8 @@ class LawContentModel {
       thuTu: map['thu_tu'] == null ? null : (map['thu_tu'] as num).toInt(),
 
       rela: relaList,
+      minKm: map['min_km'] == null ? null : (map['min_km'] as num).toDouble(),
+      maxKm: map['max_km'] == null ? null : (map['max_km'] as num).toDouble(),
 
       modifiedBy: map['modified_by'] == null ? null : (map['modified_by'] as num).toInt(),
       modifiedByName: editorName,
