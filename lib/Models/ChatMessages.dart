@@ -1,77 +1,23 @@
-// import 'dart:io';
-// import 'dart:typed_data';
-
-// enum MessageType{text, image}
-
-// class ChatMessage
-// {
-//   final String text;
-//   final bool isUser;
-//   final DateTime timestamp;
-//   final MessageType type;
-
-//   final File? imageFile;  //mobile
-//   final Uint8List? imageBytes;  //web
-//   final String? imageBase64;
-
-//   ChatMessage(
-//   {
-//     required this.text,
-//     required this.isUser,
-//     DateTime? timestamp,
-//     this.type = MessageType.text,
-//     this.imageFile,
-//     this.imageBytes,
-//     this.imageBase64
-//   }
-//   ) : this.timestamp = timestamp ?? DateTime.now();
-// }
-// class LawSearchResult
-// {
-//   final String sohieu;
-//   final String tenvanban;
-//   final String noidung;
-
-//   LawSearchResult({required this.sohieu, required this.tenvanban, required this.noidung});
-
-//   factory LawSearchResult.fromJson(Map<String, dynamic> json)
-//   {
-//     return LawSearchResult(
-//       sohieu: json['sohieuvanban'],
-//       tenvanban: json['tenvanban'],
-//       noidung: json['noidung'],
-//     );
-//   }
-// }
-
-// class YoloResponse {
-//   final String summaryText;
-//   final String? imageBase64;
-
-//   YoloResponse({required this.summaryText, this.imageBase64});
-
-//   factory YoloResponse.fromJson(Map<String, dynamic> json) {
-//     return YoloResponse(
-//       summaryText: json['summary'] ?? json['text'] ?? json['message'] ?? 'Kết quả nhận diện',
-//       imageBase64: json['image_base64'] ?? json['image'],
-//     );
-//   }
-// }
 import 'dart:io';
 import 'dart:typed_data';
+import '../Models/YoloBoxModel.dart';
 
 enum MessageType { text, image }
 
 class ChatMessage {
-  String text; // Bỏ final để có thể update text khi stream
+  String text;
   final bool isUser;
   final DateTime timestamp;
   final MessageType type;
 
-  // Hỗ trợ hiển thị ảnh
-  final File? imageFile;      // Mobile
-  final Uint8List? imageBytes; // Web
-  final String? imageBase64;  // Server Response
+  final File? imageFile;
+  final Uint8List? imageBytes;
+  final String? imageBase64;
+
+  // THÊM MỚI: Thuộc tính để hứng toạ độ và kích thước ảnh
+  final List<YoloBox>? yoloBoxes;
+  final double? imageW;
+  final double? imageH;
 
   ChatMessage({
     required this.text,
@@ -81,21 +27,33 @@ class ChatMessage {
     this.imageFile,
     this.imageBytes,
     this.imageBase64,
+    this.yoloBoxes,
+    this.imageW,
+    this.imageH,
   }) : timestamp = timestamp ?? DateTime.now();
 }
 
-// Model hứng kết quả YOLO (Giữ lại nếu bạn định tích hợp endpoint /detect vào Python server sau này)
-class YoloResponse {
+// CẬP NHẬT: Model này giờ sẽ đọc JSON từ API /detect-lite
+class YoloLiteResponse {
   final String summaryText;
-  final String? imageBase64;
+  final List<YoloBox> boxes;
+  final double width;
+  final double height;
 
-  YoloResponse({required this.summaryText, this.imageBase64});
+  YoloLiteResponse({
+    required this.summaryText,
+    required this.boxes,
+    required this.width,
+    required this.height,
+  });
 
-  factory YoloResponse.fromJson(Map<String, dynamic> json) {
-    return YoloResponse(
+  factory YoloLiteResponse.fromJson(Map<String, dynamic> json) {
+    var boxList = json['boxes'] as List? ?? [];
+    return YoloLiteResponse(
       summaryText: json['summary'] ?? json['text'] ?? 'Kết quả nhận diện',
-      imageBase64: json['image_base64'] ?? json['image'],
+      boxes: boxList.map((i) => YoloBox.fromJson(i)).toList(),
+      width: (json['w'] as num?)?.toDouble() ?? 0.0,
+      height: (json['h'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
-

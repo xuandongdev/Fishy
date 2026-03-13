@@ -26,7 +26,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Cấu hình đường dẫn Model & File Class
-MODEL_PATH = r'D:/Fishy/server/Yolo/best11s.pt' 
+MODEL_PATH = r'D:/Fishy/server/Yolo/model/best.pt' 
 CLASSES_PATH = r'D:/Fishy/server/Yolo/classes_vie.txt'
 PORT_NUMBER = 8001  # Port của Server YOLO
 

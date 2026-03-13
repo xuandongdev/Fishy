@@ -4,386 +4,139 @@ import '../ViewModels/AddLawContentVM.dart';
 
 class AddLawContentScreen extends StatelessWidget {
   final String sohieuvanban;
-
-  const AddLawContentScreen({
-    super.key,
-    required this.sohieuvanban,
-  });
+  const AddLawContentScreen({super.key, required this.sohieuvanban});
 
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider(
-      // ✅ Chỉ auto chọn khi sohieuvanban có giá trị thật và khác rỗng
       create: (_) {
         final vm = AddContentVM();
-        final s = sohieuvanban.trim();
-        if (s.isNotEmpty) {
-          vm.setSelectedSohieu(s);
-        }
+        if (sohieuvanban.trim().isNotEmpty) vm.setSelectedSohieu(sohieuvanban.trim());
         return vm;
       },
       child: Consumer<AddContentVM>(
         builder: (context, vm, child) {
-          const loaiMucOptions = <String>[
-            'CHUONG',
-            'MUC',
-            'DIEU',
-            'KHOAN',
-            'DIEM',
-          ];
+          const loaiMucOptions = ['CHUONG', 'MUC', 'DIEU', 'KHOAN', 'DIEM'];
 
-          // ===== helper: ép value về null nếu không có trong items =====
-          String? safeStringValue(String? v, List<Map<String, dynamic>> items, String key) {
-            if (v == null) return null;
-            return items.any((e) => (e[key]?.toString() ?? '') == v) ? v : null;
-          }
+          int? safeInt(int? v, List<Map<String, dynamic>> items) =>
+              (v != null && items.any((e) => e['sothutund'] == v)) ? v : null;
 
-          int? safeIntValue(int? v, List<Map<String, dynamic>> items, String key) {
-            if (v == null) return null;
-            return items.any((e) => e[key] == v) ? v : null;
-          }
-
-          // ✅ Safe value cho dropdown văn bản
-          final selectedSohieuSafe = safeStringValue(
-            vm.selectedSohieu,
-            vm.vanBanList,
-            'sohieuvanban',
-          );
-
-          // ✅ Safe value cho dropdown phân cấp
-          final selectedChuongSafe = safeIntValue(vm.selectedChuong, vm.chuongList, 'sothutund');
-          final selectedMucSafe = safeIntValue(vm.selectedMuc, vm.mucList, 'sothutund');
-          final selectedDieuSafe = safeIntValue(vm.selectedDieu, vm.dieuList, 'sothutund');
-          final selectedKhoanSafe = safeIntValue(vm.selectedKhoan, vm.khoanList, 'sothutund');
-          final selectedDiemSafe = safeIntValue(vm.selectedDiem, vm.diemList, 'sothutund');
-
-          // ===== Safe cho loai_muc dropdown (lấy từ controller) =====
-          final currentLoai = vm.loaiMucController.text.trim().toUpperCase();
-          final String? selectedLoaiMuc =
-          loaiMucOptions.contains(currentLoai) ? currentLoai : null;
-
-          // ✅ Nếu chưa có văn bản nào => show màn báo, KHÔNG render dropdown để tránh crash
-          final noLawYet = !vm.isLoading && vm.vanBanList.isEmpty;
+          final selectedSohieuSafe = (vm.selectedSohieu != null && vm.vanBanList.any((e) => e['sohieuvanban'] == vm.selectedSohieu)) ? vm.selectedSohieu : null;
 
           return Scaffold(
             appBar: AppBar(title: const Text('Thêm Nội Dung Văn Bản')),
-            body: noLawYet
-                ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.description_outlined, size: 48, color: Colors.grey),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Hiện tại chưa có văn bản nào được lưu',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Hãy thêm văn bản trước rồi mới nhập nội dung (chunk).',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey),
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        // bạn có route /addLaw thì dùng luôn
-                        Navigator.pushNamed(context, '/addLaw');
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('Thêm văn bản'),
-                    ),
-                  ],
-                ),
-              ),
-            )
+            body: vm.vanBanList.isEmpty && !vm.isLoading
+                ? const Center(child: Text('Chưa có văn bản nào.'))
                 : Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: ListView(
-                children: [
-                  const Text('Chọn số hiệu văn bản:'),
-                  const SizedBox(height: 6),
-                  SizedBox(
-                    height: 55,
-                    child: DropdownButton<String>(
-                      isExpanded: true,
-                      value: selectedSohieuSafe,
-                      hint: const Text('- Chọn số hiệu -'),
-                      items: vm.vanBanList.map((vb) {
-                        final so = (vb['sohieuvanban'] ?? '').toString();
-                        final ten = (vb['tenvanban'] ?? '').toString();
-                        return DropdownMenuItem<String>(
-                          value: so,
-                          child: Text(
-                            '$so - $ten',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: vm.isLoading ? null : vm.setSelectedSohieu,
-                    ),
-                  ),
-
-                  if (selectedSohieuSafe != null) ...[
-                    const SizedBox(height: 16),
-                    const Text('Chọn CHƯƠNG (hoặc để trống để thêm chương mới):'),
-                    const SizedBox(height: 6),
-                    DropdownButton<int?>(
-                      isExpanded: true,
-                      value: selectedChuongSafe,
-                      hint: const Text('- Chọn chương -'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('- (Không chọn) -'),
+                    padding: const EdgeInsets.all(16.0),
+                    child: ListView(
+                      children: [
+                        const Text('Chọn số hiệu văn bản:'),
+                        DropdownButton<String>(
+                          isExpanded: true,
+                          value: selectedSohieuSafe,
+                          items: vm.vanBanList.map((vb) => DropdownMenuItem(value: vb['sohieuvanban'].toString(), child: Text(vb['sohieuvanban'].toString()))).toList(),
+                          onChanged: vm.setSelectedSohieu,
                         ),
-                        ...vm.chuongList.map((c) {
-                          final id = c['sothutund'] as int?;
-                          final text = (c['noidung'] ?? '').toString();
-                          return DropdownMenuItem<int?>(
-                            value: id,
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
+                        if (selectedSohieuSafe != null) ...[
+                          const SizedBox(height: 12),
+                          _buildDropdown<int?>('Chương', safeInt(vm.selectedChuong, vm.chuongList), vm.chuongList, vm.setSelectedChuong),
+                          if (vm.selectedChuong != null) ...[
+                            _buildDropdown<int?>('Mục', safeInt(vm.selectedMuc, vm.mucList), vm.mucList, vm.setSelectedMuc),
+                            if(vm.selectedMuc != null) ...[
+                              _buildDropdown<int?>('Điều', safeInt(vm.selectedDieu, vm.dieuList), vm.dieuList, vm.setSelectedDieu),
+                            // 3. CHỈ KHI Điều KHÁC NULL thì mới vẽ ô chọn Khoản
+                              if (vm.selectedDieu != null) ...[
+                                _buildDropdown<int?>('Khoản', safeInt(vm.selectedKhoan, vm.khoanList), vm.khoanList, vm.setSelectedKhoan),
+
+                                // 4. CHỈ KHI Khoản KHÁC NULL thì mới vẽ ô chọn Điểm
+                                if (vm.selectedKhoan != null) ...[
+                                  _buildDropdown<int?>('Điểm', safeInt(vm.selectedDiem, vm.diemList), vm.diemList, vm.setSelectedDiem),
+                                ],
+                              ],
+                            ],
+                          ],
+                        ],
+                        const SizedBox(height: 12),
+                        const Text('Loại mục:'),
+                        DropdownButton<String>(
+                          isExpanded: true,
+                          value: loaiMucOptions.contains(vm.loaiMucController.text) ? vm.loaiMucController.text : null,
+                          items: loaiMucOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+                          onChanged: vm.setLoaiMuc,
+                        ),
+                        const SizedBox(height: 12),
+                        _buildTextField(vm.kyHieuController, 'Ký hiệu (VD: ĐIỀU 1; ĐIỂM a)'),
+                        const SizedBox(height: 12),
+                        _buildTextField(vm.thuTuController, 'Thứ tự (số)', isNumber: true),
+                        
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: _buildTextField(vm.minKmController, 'Vượt từ (km/h)', isNumber: true)),
+                            const SizedBox(width: 12),
+                            Expanded(child: _buildTextField(vm.maxKmController, 'Đến mức (km/h)', isNumber: true)),
+                          ],
+                        ),
+                        
+                        const SizedBox(height: 12),
+                        _buildTextField(vm.relaController, 'Từ liên quan (cách bởi ;)'),
+                        const SizedBox(height: 12),
+                        _buildTextField(vm.noidungController, 'Nội dung', maxLines: 5),
+                        const SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: vm.isLoading ? null : () async {
+                            final ok = await vm.addContent();
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Thêm dữ liệu thành công' : 'Thêm dữ liệu thất bại do chưa điền đủ thông tin'), backgroundColor: ok ? Colors.green : Colors.red));
+                          },
+                          child: vm.isLoading ? const CircularProgressIndicator() : const Text('Thêm nội dung'),
+                        ),
                       ],
-                      onChanged: vm.isLoading ? null : vm.setSelectedChuong,
-                    ),
-                  ],
-
-                  if (selectedChuongSafe != null) ...[
-                    const SizedBox(height: 16),
-                    const Text(
-                        'Chọn MỤC (hoặc để trống để thêm mục mới / không chọn để thêm điều mới):'),
-                    const SizedBox(height: 6),
-                    DropdownButton<int?>(
-                      isExpanded: true,
-                      value: selectedMucSafe,
-                      hint: const Text('- Chọn mục -'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('- (Không chọn) -'),
-                        ),
-                        ...vm.mucList.map((m) {
-                          final id = m['sothutund'] as int?;
-                          final text = (m['noidung'] ?? '').toString();
-                          return DropdownMenuItem<int?>(
-                            value: id,
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                      ],
-                      onChanged: vm.isLoading ? null : vm.setSelectedMuc,
-                    ),
-                  ],
-
-                  if (selectedChuongSafe != null) ...[
-                    const SizedBox(height: 16),
-                    const Text('Chọn ĐIỀU (hoặc để trống để thêm điều mới):'),
-                    const SizedBox(height: 6),
-                    DropdownButton<int?>(
-                      isExpanded: true,
-                      value: selectedDieuSafe,
-                      hint: const Text('- Chọn điều -'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('- (Không chọn) -'),
-                        ),
-                        ...vm.dieuList.map((d) {
-                          final id = d['sothutund'] as int?;
-                          final text = (d['noidung'] ?? '').toString();
-                          return DropdownMenuItem<int?>(
-                            value: id,
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                      ],
-                      onChanged: vm.isLoading ? null : vm.setSelectedDieu,
-                    ),
-                  ],
-
-                  if (selectedDieuSafe != null) ...[
-                    const SizedBox(height: 16),
-                    const Text('Chọn KHOẢN (hoặc để trống để thêm khoản mới):'),
-                    const SizedBox(height: 6),
-                    DropdownButton<int?>(
-                      isExpanded: true,
-                      value: selectedKhoanSafe,
-                      hint: const Text('- Chọn khoản -'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('- (Không chọn) -'),
-                        ),
-                        ...vm.khoanList.map((k) {
-                          final id = k['sothutund'] as int?;
-                          final text = (k['noidung'] ?? '').toString();
-                          return DropdownMenuItem<int?>(
-                            value: id,
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                      ],
-                      onChanged: vm.isLoading ? null : vm.setSelectedKhoan,
-                    ),
-                  ],
-
-                  if (selectedKhoanSafe != null) ...[
-                    const SizedBox(height: 16),
-                    const Text('Chọn ĐIỂM (hoặc để trống để thêm điểm mới):'),
-                    const SizedBox(height: 6),
-                    DropdownButton<int?>(
-                      isExpanded: true,
-                      value: selectedDiemSafe,
-                      hint: const Text('- Chọn điểm -'),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('- (Không chọn) -'),
-                        ),
-                        ...vm.diemList.map((d) {
-                          final id = d['sothutund'] as int?;
-                          final text = (d['noidung'] ?? '').toString();
-                          return DropdownMenuItem<int?>(
-                            value: id,
-                            child: Text(
-                              text,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          );
-                        }).toList(),
-                      ],
-                      onChanged: vm.isLoading ? null : vm.setSelectedDiem,
-                    ),
-                  ],
-
-                  const SizedBox(height: 16),
-
-                  // ===== loai_muc dropdown =====
-                  const Text('Loại mục (bắt buộc):'),
-                  const SizedBox(height: 6),
-                  DropdownButton<String>(
-                    isExpanded: true,
-                    value: selectedLoaiMuc,
-                    hint: const Text('- Chọn loại mục -'),
-                    items: loaiMucOptions
-                        .map(
-                          (x) => DropdownMenuItem<String>(
-                        value: x,
-                        child: Text(x),
-                      ),
-                    )
-                        .toList(),
-                    onChanged: vm.isLoading ? null : vm.setLoaiMuc,
-                  ),
-
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: vm.kyHieuController,
-                    decoration: const InputDecoration(
-                      labelText: 'Ký hiệu (VD: CHƯƠNG I / ĐIỀU 1 / KHOẢN 5 / ĐIỂM a)',
-                      border: OutlineInputBorder(),
-                      hintText: 'VD: KHOẢN 5',
                     ),
                   ),
-
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: vm.thuTuController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Thứ tự (bắt buộc - số thứ tự 1,2,3...)',
-                      border: OutlineInputBorder(),
-                      hintText: 'VD: 5',
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: vm.relaController,
-                    decoration: const InputDecoration(
-                      labelText: 'Từ có liên quan (phân cách bằng ";")',
-                      border: OutlineInputBorder(),
-                      hintText: 'VD: vượt đèn đỏ; không tuân thủ tín hiệu; vượt tín hiệu đèn',
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: vm.noidungController,
-                    maxLines: 6,
-                    decoration: const InputDecoration(
-                      labelText: 'Nội dung mới',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: vm.isLoading
-                        ? null
-                        : () async {
-                      final missing = selectedSohieuSafe == null ||
-                          vm.noidungController.text.trim().isEmpty ||
-                          vm.loaiMucController.text.trim().isEmpty ||
-                          int.tryParse(vm.thuTuController.text.trim()) == null;
-
-                      if (missing) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Thiếu dữ liệu: cần chọn văn bản, nhập nội dung, chọn loại mục và nhập thứ tự (số).',
-                            ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
-
-                      final ok = await vm.addContent();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(ok ? 'Đã thêm thành công!' : 'Thêm thất bại.'),
-                          backgroundColor: ok ? Colors.green : Colors.red,
-                        ),
-                      );
-                    },
-                    child: vm.isLoading
-                        ? const SizedBox(
-                      height: 22,
-                      width: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                        : const Text('Thêm nội dung'),
-                  ),
-                ],
-              ),
-            ),
           );
         },
       ),
+    );
+  }
+
+  Widget _buildTextField(TextEditingController ctrl, String label, {bool isNumber = false, int maxLines = 1}) {
+    return TextField(
+      controller: ctrl,
+      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      maxLines: maxLines,
+      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+    );
+  }
+
+  Widget _buildDropdown<T>(String label, T value, List<Map<String, dynamic>> items, Function(T) onChanged) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Chọn $label:'),
+        DropdownButton<T>(
+          isExpanded: true,
+          value: value,
+          items: [
+            const DropdownMenuItem(value: null, child: Text('- Thêm nội dung mới -')),
+            ...items.map((i) {
+              // --- TÍCH HỢP XỬ LÝ KÝ HIỆU + NỘI DUNG TẠI ĐÂY ---
+              final String kyHieu = i['ky_hieu']?.toString() ?? '';
+              final String noiDung = i['noidung']?.toString() ?? '';
+              
+              // Ghép chuỗi thông minh
+              final String displayText = kyHieu.isNotEmpty ? '$kyHieu - $noiDung' : noiDung;
+
+              return DropdownMenuItem(
+                value: i['sothutund'] as T,
+                child: Text(displayText, overflow: TextOverflow.ellipsis),
+              );
+            })
+          ],
+          onChanged: (val) => onChanged(val as T),
+        ),
+        const SizedBox(height: 8),
+      ],
     );
   }
 }
