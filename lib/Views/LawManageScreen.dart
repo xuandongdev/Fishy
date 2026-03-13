@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 
 import '../ViewModels/LawVM.dart';
+import '../Services/EmbeddingService.dart'; // BỔ SUNG IMPORT SERVICE
 import 'LawDetailScreen.dart';
 import 'AddLawScreen.dart';
 
@@ -131,18 +132,52 @@ class _LawManageScreenState extends State<LawManageScreen> {
                           );
                         },
                       ),
-            floatingActionButton: SizedBox(
-              width: 45,
-              height: 45,
-              child: FloatingActionButton(
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AddLawScreen()),
-                  );
-                },
-                child: const Icon(Icons.add),
-              ),
+            // --- CỤM NÚT BẤM MỚI Ở GÓC DƯỚI ---
+            floatingActionButton: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                // NÚT SYNC VECTOR
+                SizedBox(
+                  width: 45,
+                  height: 45,
+                  child: FloatingActionButton(
+                    heroTag: 'sync_btn', // Cần có heroTag để tránh lỗi trùng lặp hiệu ứng
+                    backgroundColor: Colors.blue,
+                    onPressed: () async {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Đang tiến hành nhúng Vector... Xem Terminal!')),
+                      );
+                      
+                      await EmbeddingService.generateAndUpdateAllEmbeddings();
+                      
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Hoàn tất đồng bộ Vector!')),
+                        );
+                      }
+                    },
+                    child: const Icon(Icons.sync, color: Colors.white),
+                  ),
+                ),
+                
+                const SizedBox(width: 12), // Khoảng cách giữa 2 nút
+                
+                // NÚT ADD VĂN BẢN
+                SizedBox(
+                  width: 45,
+                  height: 45,
+                  child: FloatingActionButton(
+                    heroTag: 'add_btn',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => AddLawScreen()),
+                      );
+                    },
+                    child: const Icon(Icons.add),
+                  ),
+                ),
+              ],
             ),
           );
         },
