@@ -41,9 +41,21 @@ class AddLawContentScreen extends StatelessWidget {
                         if (selectedSohieuSafe != null) ...[
                           const SizedBox(height: 12),
                           _buildDropdown<int?>('Chương', safeInt(vm.selectedChuong, vm.chuongList), vm.chuongList, vm.setSelectedChuong),
-                          _buildDropdown<int?>('Mục', safeInt(vm.selectedMuc, vm.mucList), vm.mucList, vm.setSelectedMuc),
-                          _buildDropdown<int?>('Điều', safeInt(vm.selectedDieu, vm.dieuList), vm.dieuList, vm.setSelectedDieu),
-                          _buildDropdown<int?>('Khoản', safeInt(vm.selectedKhoan, vm.khoanList), vm.khoanList, vm.setSelectedKhoan),
+                          if (vm.selectedChuong != null) ...[
+                            _buildDropdown<int?>('Mục', safeInt(vm.selectedMuc, vm.mucList), vm.mucList, vm.setSelectedMuc),
+                            if(vm.selectedMuc != null) ...[
+                              _buildDropdown<int?>('Điều', safeInt(vm.selectedDieu, vm.dieuList), vm.dieuList, vm.setSelectedDieu),
+                            // 3. CHỈ KHI Điều KHÁC NULL thì mới vẽ ô chọn Khoản
+                              if (vm.selectedDieu != null) ...[
+                                _buildDropdown<int?>('Khoản', safeInt(vm.selectedKhoan, vm.khoanList), vm.khoanList, vm.setSelectedKhoan),
+
+                                // 4. CHỈ KHI Khoản KHÁC NULL thì mới vẽ ô chọn Điểm
+                                if (vm.selectedKhoan != null) ...[
+                                  _buildDropdown<int?>('Điểm', safeInt(vm.selectedDiem, vm.diemList), vm.diemList, vm.setSelectedDiem),
+                                ],
+                              ],
+                            ],
+                          ],
                         ],
                         const SizedBox(height: 12),
                         const Text('Loại mục:'),
@@ -54,11 +66,10 @@ class AddLawContentScreen extends StatelessWidget {
                           onChanged: vm.setLoaiMuc,
                         ),
                         const SizedBox(height: 12),
-                        _buildTextField(vm.kyHieuController, 'Ký hiệu (VD: ĐIỀU 1)'),
+                        _buildTextField(vm.kyHieuController, 'Ký hiệu (VD: ĐIỀU 1; ĐIỂM a)'),
                         const SizedBox(height: 12),
                         _buildTextField(vm.thuTuController, 'Thứ tự (số)', isNumber: true),
                         
-                        // --- PHẦN THÊM MỚI: KM RANGE ---
                         const SizedBox(height: 12),
                         Row(
                           children: [
@@ -76,7 +87,7 @@ class AddLawContentScreen extends StatelessWidget {
                         ElevatedButton(
                           onPressed: vm.isLoading ? null : () async {
                             final ok = await vm.addContent();
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Thành công' : 'Thất bại'), backgroundColor: ok ? Colors.green : Colors.red));
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Thêm dữ liệu thành công' : 'Thêm dữ liệu thất bại do chưa điền đủ thông tin'), backgroundColor: ok ? Colors.green : Colors.red));
                           },
                           child: vm.isLoading ? const CircularProgressIndicator() : const Text('Thêm nội dung'),
                         ),
@@ -107,8 +118,20 @@ class AddLawContentScreen extends StatelessWidget {
           isExpanded: true,
           value: value,
           items: [
-            const DropdownMenuItem(value: null, child: Text('- Không chọn -')),
-            ...items.map((i) => DropdownMenuItem(value: i['sothutund'] as T, child: Text(i['noidung'].toString(), overflow: TextOverflow.ellipsis)))
+            const DropdownMenuItem(value: null, child: Text('- Thêm nội dung mới -')),
+            ...items.map((i) {
+              // --- TÍCH HỢP XỬ LÝ KÝ HIỆU + NỘI DUNG TẠI ĐÂY ---
+              final String kyHieu = i['ky_hieu']?.toString() ?? '';
+              final String noiDung = i['noidung']?.toString() ?? '';
+              
+              // Ghép chuỗi thông minh
+              final String displayText = kyHieu.isNotEmpty ? '$kyHieu - $noiDung' : noiDung;
+
+              return DropdownMenuItem(
+                value: i['sothutund'] as T,
+                child: Text(displayText, overflow: TextOverflow.ellipsis),
+              );
+            })
           ],
           onChanged: (val) => onChanged(val as T),
         ),

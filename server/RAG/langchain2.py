@@ -24,9 +24,6 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 
-# ======================================================
-# CẤU HÌNH HỆ THỐNG
-# ======================================================
 load_dotenv()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
@@ -34,7 +31,7 @@ SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
-    print("⚠️ CẢNH BÁO: Chưa tìm thấy OPENAI_API_KEY trong file .env!")
+    print("Chưa tìm thấy OPENAI_API_KEY trong .env")
 
 PORT_NUMBER = 8000 
 
@@ -57,9 +54,7 @@ def start_cloudflare_tunnel(port, supabase_client):
                 ).eq("key", "rag_url").execute()
                 
                 logger.info(f"[Cloudflare] RAG URL: {public_url}")
-                logger.info("==========================================================")
-                logger.info("🚀 SERVER ĐÃ HOẠT ĐỘNG! LINK ĐÃ ĐƯỢC CẬP NHẬT LÊN SUPABASE.")
-                logger.info("==========================================================")
+                logger.info("SERVER ĐÃ HOẠT ĐỘNG! LINK ĐÃ ĐƯỢC CẬP NHẬT LÊN SUPABASE.\n\n")
                 break
     except Exception as e: logger.error(f"Tunnel Error: {e}")
 
@@ -68,19 +63,14 @@ class LegalSupabaseRetriever(BaseRetriever):
     embedding_model: Any = Field(exclude=True)
 
     def extract_km(self, query: str) -> Optional[float]:
-        """Bóc tách số km từ câu hỏi (Hỗ trợ lố, cây số, km/h, km)"""
-        # Regex tối ưu: Tìm bất kỳ con số nào đi kèm với đơn vị hoặc từ khóa tốc độ gần đó
-        # Bắt được: "40 cây số", "40km", "chạy quá 40", "lố 40 cây"...
         pattern = r'(\d+(?:[\.,]\d+)?)\s*(?:km|km/h|cây số|cây|kỳ)|(?:quá|lố|chạy|mức|tốc độ)\s*(\d+(?:[\.,]\d+)?)'
         match = re.search(pattern, query, re.IGNORECASE)
         
         if match:
-            # Lấy group 1 (số trước đơn vị) hoặc group 2 (số sau từ khóa)
             val = match.group(1) if match.group(1) else match.group(2)
             try:
                 num = float(val.replace(',', '.'))
-                # Log để kiểm tra thực tế trong terminal
-                logger.info(f"🎯 ĐÃ TRÍCH XUẤT ĐƯỢC SỐ KM: {num}")
+                logger.info(f"ĐÃ TRÍCH XUẤT ĐƯỢC SỐ KM: {num}")
                 return num
             except:
                 return None
@@ -92,22 +82,22 @@ class LegalSupabaseRetriever(BaseRetriever):
         # TRÍCH XUẤT SỐ KM
         query_km = self.extract_km(query)
         if query_km:
-            logger.info(f"🎯 PHÁT HIỆN TRUY VẤN TỐC ĐỘ: {query_km} km/h")
+            logger.info(f"PHÁT HIỆN TRUY VẤN TỐC ĐỘ: {query_km} km/h")
 
-        # Gọi RPC match_legal_docs_v4
-        res = self.supabase_client.rpc("match_legal_docs_v4", {
-            "query_embedding": query_vector,
-            "query_text": query,
-            "match_threshold": 0.45,
-            "match_count": 10,
-            "query_km": query_km
+        # Gọi RPC match_legal_docs_v2
+        res = self.supabase_client.rpc("match_legal_docs_v2", {
+            "vector_truy_van": query_vector,
+            "van_ban_truy_van": query,
+            "nguong_khop": 0.45,
+            "so_luong_ket_qua": 10,
+            "so_km_truy_van": query_km
         }).execute()
         
         data = res.data or []
         
         logger.info("\n" + "="*70)
-        logger.info(f"👤 USER: '{query}'")
-        logger.info(f"📚 TRUY XUẤT {len(data)} KẾT QUẢ:")
+        logger.info(f"USER: '{query}'")
+        logger.info(f"TRUY XUẤT {len(data)} KẾT QUẢ:")
         
         for idx, item in enumerate(data):
             sohieu = item.get("sohieu", "N/A")
@@ -121,7 +111,7 @@ class LegalSupabaseRetriever(BaseRetriever):
             page_content=h.get("noidung", ""), 
             metadata={
                 "sohieu": h.get("sohieu"), 
-                "path": h.get("hierarchy_path")
+                "path": h.get("duong_dan_phan_cap")
             }
         ) for h in data]
 
