@@ -1,4 +1,4 @@
-rag: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+rag: uvicorn langchain2:app --host 0.0.0.0 --port 8000 --reload
 yolo: uvicorn app:app --host 0.0.0.0 --port 8001 --reload
 
 ollama run qwen2.5:7b

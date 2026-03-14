@@ -38,25 +38,31 @@ class AddLawContentScreen extends StatelessWidget {
                           items: vm.vanBanList.map((vb) => DropdownMenuItem(value: vb['sohieuvanban'].toString(), child: Text(vb['sohieuvanban'].toString()))).toList(),
                           onChanged: vm.setSelectedSohieu,
                         ),
+                        
+                        // 1. Luôn hiện CHƯƠNG khi đã chọn Văn bản
                         if (selectedSohieuSafe != null) ...[
                           const SizedBox(height: 12),
                           _buildDropdown<int?>('Chương', safeInt(vm.selectedChuong, vm.chuongList), vm.chuongList, vm.setSelectedChuong),
+                          
+                          // 2. MỤC và ĐIỀU cùng hiện ra khi đã chọn CHƯƠNG
                           if (vm.selectedChuong != null) ...[
                             _buildDropdown<int?>('Mục', safeInt(vm.selectedMuc, vm.mucList), vm.mucList, vm.setSelectedMuc),
-                            if(vm.selectedMuc != null) ...[
-                              _buildDropdown<int?>('Điều', safeInt(vm.selectedDieu, vm.dieuList), vm.dieuList, vm.setSelectedDieu),
-                            // 3. CHỈ KHI Điều KHÁC NULL thì mới vẽ ô chọn Khoản
-                              if (vm.selectedDieu != null) ...[
-                                _buildDropdown<int?>('Khoản', safeInt(vm.selectedKhoan, vm.khoanList), vm.khoanList, vm.setSelectedKhoan),
+                            
+                            // ĐIỀU nằm ngang hàng với MỤC (không bị nhốt trong if chọn Mục)
+                            _buildDropdown<int?>('Điều', safeInt(vm.selectedDieu, vm.dieuList), vm.dieuList, vm.setSelectedDieu),
+                            
+                            // 3. KHOẢN chỉ hiện khi đã chọn ĐIỀU
+                            if (vm.selectedDieu != null) ...[
+                              _buildDropdown<int?>('Khoản', safeInt(vm.selectedKhoan, vm.khoanList), vm.khoanList, vm.setSelectedKhoan),
 
-                                // 4. CHỈ KHI Khoản KHÁC NULL thì mới vẽ ô chọn Điểm
-                                if (vm.selectedKhoan != null) ...[
-                                  _buildDropdown<int?>('Điểm', safeInt(vm.selectedDiem, vm.diemList), vm.diemList, vm.setSelectedDiem),
-                                ],
+                              // 4. ĐIỂM chỉ hiện khi đã chọn KHOẢN
+                              if (vm.selectedKhoan != null) ...[
+                                _buildDropdown<int?>('Điểm', safeInt(vm.selectedDiem, vm.diemList), vm.diemList, vm.setSelectedDiem),
                               ],
                             ],
                           ],
                         ],
+                        
                         const SizedBox(height: 12),
                         const Text('Loại mục:'),
                         DropdownButton<String>(
