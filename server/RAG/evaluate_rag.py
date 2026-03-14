@@ -80,7 +80,7 @@ def run_evaluation():
 
     print("\nĐang nạp bộ đề thi eval.jsonl...")
     try:
-        with open("eval.jsonl", "r", encoding="utf-8-sig") as f:
+        with open("eval_set_generated_strict.jsonl", "r", encoding="utf-8-sig") as f:
             for line in f:
                 if line.strip():
                     item = json.loads(line)

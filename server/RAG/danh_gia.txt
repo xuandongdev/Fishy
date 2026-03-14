@@ -1,0 +1,7 @@
+python danh_gia_rag.py --mode generate_only --eval-file danh_gia_rag.jsonl
+python danh_gia_rag.py --mode judge_only --eval-file danh_gia_rag.jsonl
+python danh_gia_rag.py --mode build_report --eval-file danh_gia_rag.jsonl
+
+
+chạy từ đầu đến cuối
+python danh_gia_rag.py --mode full --eval-file danh_gia_rag.jsonl
