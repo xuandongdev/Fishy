@@ -1,0 +1,8 @@
+﻿metric_key,metric_label,mean_value
+hit_at_k,Hit@K,0.873333
+recall_at_k,Recall@K,0.875839
+mrr,MRR,0.647556
+context_precision,Context Precision,0.854657
+context_recall,Context Recall,0.925556
+faithfulness,Faithfulness,0.891048
+answer_relevancy,Answer Relevancy,0.774612
