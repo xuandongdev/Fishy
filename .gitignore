@@ -50,3 +50,4 @@ lib/Configs/Constants.dart
 server/.venv
 server/cloudflared.exe
 .env
+# server/RAG/danh_gia_rag
