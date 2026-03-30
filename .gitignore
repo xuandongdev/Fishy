@@ -52,3 +52,5 @@ server/cloudflared.exe
 .env
 # server/RAG/danh_gia_rag
 .venv
+
+.env.example
