@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+python-dotenv
+supabase
+openai
+sentence-transformers
+langchain-openai
+langchain-core
+pypdf
+python-multipart
