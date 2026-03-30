@@ -141,7 +141,7 @@ class _RealtimeDetectScreenState extends State<RealtimeDetectScreen> {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
-              color: Colors.redAccent.withOpacity(0.9), // Đổi màu cảnh báo cho nổi bật
+              color: Colors.redAccent.withOpacity(0.9),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
