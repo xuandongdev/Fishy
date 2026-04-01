@@ -1,6 +1,7 @@
 rag: uvicorn langchain2:app --host 0.0.0.0 --port 8000 --reload
 yolo: uvicorn app:app --host 0.0.0.0 --port 8001 --reload
 legal_ingest: uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
+trusted_rag: uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
 
 ollama run qwen2.5:7b
 

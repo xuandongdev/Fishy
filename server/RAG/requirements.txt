@@ -3,6 +3,7 @@ uvicorn
 python-dotenv
 supabase
 openai
+requests
 sentence-transformers
 langchain-openai
 langchain-core
