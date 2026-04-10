@@ -31,9 +31,24 @@ class RetrievalService:
         self.answer_service = answer_service
 
     def search_legal_db(self, question: str, query_vector: List[float]) -> List[Dict[str, Any]]:
-        vector_literal = "[" + ",".join(f"{value:.10f}" for value in query_vector) + "]"
         try:
             response = self.supabase.rpc(
+                "match_legal_docs_v2",
+                {
+                    "vector_truy_van": query_vector,
+                    "van_ban_truy_van": question,
+                    "nguong_khop": self.settings.rag_legal_score_threshold,
+                    "so_luong_ket_qua": 5,
+                    "so_km_truy_van": None,
+                },
+            ).execute()
+            hits = self._map_legacy_legal_hits(response.data or [])
+            logger.info("legal retrieval rpc | function=match_legal_docs_v2 | results=%s", len(hits))
+            return hits
+        except Exception as exc:
+            logger.warning("match_legal_docs_v2 unavailable, fallback to hybrid_search_legal_sources: %s", exc)
+            vector_literal = "[" + ",".join(f"{value:.10f}" for value in query_vector) + "]"
+            legacy = self.supabase.rpc(
                 "hybrid_search_legal_sources",
                 {
                     "query_text": question,
@@ -41,34 +56,8 @@ class RetrievalService:
                     "result_limit": 5,
                 },
             ).execute()
-            return response.data or []
-        except Exception as exc:
-            logger.warning("legal hybrid rpc unavailable, fallback to match_legal_docs_v2: %s", exc)
-            legacy = self.supabase.rpc(
-                "match_legal_docs_v2",
-                {
-                    "vector_truy_van": query_vector,
-                    "van_ban_truy_van": question,
-                    "nguong_khop": self.settings.rerank_threshold,
-                    "so_luong_ket_qua": 5,
-                    "so_km_truy_van": None,
-                },
-            ).execute()
-            hits = []
-            for item in legacy.data or []:
-                hits.append(
-                    {
-                        "source_type": "legal_db",
-                        "source_table": "noidung",
-                        "primary_id": item.get("sothutund"),
-                        "label": item.get("duong_dan_phan_cap") or item.get("sohieu") or "Legal DB",
-                        "content": item.get("noidung", ""),
-                        "url": None,
-                        "lexical_score": float(item.get("do_tuong_dong", 0.0)),
-                        "semantic_score": float(item.get("do_tuong_dong", 0.0)),
-                        "hybrid_score": float(item.get("do_tuong_dong", 0.0)),
-                    }
-                )
+            hits = legacy.data or []
+            logger.info("legal retrieval rpc | function=hybrid_search_legal_sources | results=%s", len(hits))
             return hits
 
     def search_trusted_cache(self, question: str, query_vector: List[float]) -> List[Dict[str, Any]]:
@@ -189,3 +178,22 @@ class RetrievalService:
             if float(item.get("hybrid_score", 0.0)) >= min_score
         ]
         return len(qualified_hits) >= min_evidence, len(qualified_hits)
+
+    def _map_legacy_legal_hits(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        hits = []
+        for item in rows:
+            score = float(item.get("do_tuong_dong", 0.0))
+            hits.append(
+                {
+                    "source_type": "legal_db",
+                    "source_table": "noidung",
+                    "primary_id": item.get("sothutund"),
+                    "label": item.get("duong_dan_phan_cap") or item.get("sohieu") or "Legal DB",
+                    "content": item.get("noidung", ""),
+                    "url": None,
+                    "lexical_score": score,
+                    "semantic_score": score,
+                    "hybrid_score": score,
+                }
+            )
+        return hits

@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from langchain_adapter import LangChainAdapter
 from services.retrieval_service import RetrievalService
 
 
@@ -12,13 +13,24 @@ logger = logging.getLogger("CHAT_ROUTER")
 
 class ChatAskRequest(BaseModel):
     question: str
+    session_id: Optional[str] = None
     history: Optional[List[Dict[str, str]]] = []
 
 
-def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
+def create_chat_router(
+    retrieval_service: RetrievalService,
+    langchain_adapter: Optional[LangChainAdapter] = None,
+) -> APIRouter:
     router = APIRouter(tags=["chat"])
 
     async def handle_question(req: ChatAskRequest) -> Dict[str, Any]:
+        if langchain_adapter is not None:
+            return await langchain_adapter.chat(
+                question=req.question,
+                session_id=req.session_id,
+                chat_history=req.history,
+            )
+
         retrieval = retrieval_service.retrieve_context(req.question)
         final_hits = retrieval["combined_results"]
 
@@ -26,7 +38,10 @@ def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
             return {
                 "success": True,
                 "answer": "Chua tim thay du du lieu dang tin cay trong legal_db, trusted cache, hoac Firecrawl de tra loi cau hoi nay.",
+                "route": "legal_rag",
+                "session_id": req.session_id,
                 "used_fallback": retrieval["used_fallback"],
+                "used_firecrawl": retrieval["firecrawl_called"],
                 "sources": [],
                 "debug": {
                     "legal_results": len(retrieval["legal_results"]),
@@ -42,7 +57,10 @@ def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
         return {
             "success": True,
             "answer": answer_bundle["answer"],
+            "route": "legal_rag",
+            "session_id": req.session_id,
             "used_fallback": retrieval["used_fallback"],
+            "used_firecrawl": retrieval["firecrawl_called"],
             "sources": answer_bundle["sources"],
             "debug": {
                 "legal_results": len(retrieval["legal_results"]),

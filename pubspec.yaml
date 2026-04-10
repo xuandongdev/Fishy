@@ -43,6 +43,7 @@ dependencies:
   google_generative_ai: ^0.4.7
   flutter_dotenv: ^5.1.0
   image_picker: ^1.0.7
+  file_picker: ^8.1.2
   camera: ^0.11.0+2
   image: ^4.2.0
   flutter_local_notifications: ^17.0.0
@@ -71,6 +72,7 @@ flutter:
   assets:
     - assets/logo.png
     - assets/logo_tron.png
+    - assets/add_docs.png
     - .env
 
   # To add assets to your application, add an assets section, like this:

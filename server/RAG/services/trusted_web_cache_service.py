@@ -87,6 +87,36 @@ class TrustedWebCacheService:
         return inserted.data[0]
 
     def search_trusted_cache(self, question: str, query_vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        try:
+            rpc_response = self.supabase.rpc(
+                "match_web_docs",
+                {
+                    "vector_truy_van": query_vector,
+                    "nguong_khop": self.settings.rag_trusted_score_threshold,
+                    "so_luong_ket_qua": limit,
+                },
+            ).execute()
+            rows = rpc_response.data or []
+            logger.info("trusted retrieval rpc | function=match_web_docs | results=%s", len(rows))
+            return [
+                {
+                    "source_type": "trusted_web_cache",
+                    "source_table": "bai_viet_uy_tin",
+                    "primary_id": row.get("id"),
+                    "label": row.get("tieu_de") or row.get("url"),
+                    "content": row.get("noidung", ""),
+                    "url": row.get("url"),
+                    "lexical_score": float(row.get("do_tuong_dong", 0.0)),
+                    "semantic_score": float(row.get("do_tuong_dong", 0.0)),
+                    "hybrid_score": float(row.get("do_tuong_dong", 0.0)),
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            logger.warning("match_web_docs unavailable, fallback to hybrid/python ranking: %s", exc)
+            return self._fallback_trusted_cache_search(question, query_vector, limit)
+
+    def _fallback_trusted_cache_search(self, question: str, query_vector: List[float], limit: int) -> List[Dict[str, Any]]:
         vector_literal = "[" + ",".join(f"{value:.10f}" for value in query_vector) + "]"
         try:
             rpc_response = self.supabase.rpc(
@@ -97,7 +127,9 @@ class TrustedWebCacheService:
                     "result_limit": limit,
                 },
             ).execute()
-            return rpc_response.data or []
+            rows = rpc_response.data or []
+            logger.info("trusted retrieval rpc | function=hybrid_search_trusted_articles | results=%s", len(rows))
+            return rows
         except Exception as exc:
             logger.warning("trusted cache rpc unavailable, fallback to python ranking: %s", exc)
             response = self.supabase.table("bai_viet_uy_tin").select("*").limit(50).execute()

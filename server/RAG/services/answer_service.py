@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
@@ -49,7 +49,12 @@ class AnswerService:
             logger.warning("insufficient_context evaluator failed: %s", exc)
             return {"insufficient_context": False, "reason": "heuristic_pass"}
 
-    def generate_answer(self, question: str, hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def generate_answer(
+        self,
+        question: str,
+        hits: List[Dict[str, Any]],
+        history: Optional[List[Dict[str, str]]] = None,
+    ) -> Dict[str, Any]:
         context_blocks = []
         sources = []
         for item in hits:
@@ -64,19 +69,27 @@ class AnswerService:
                 }
             )
 
+        messages: List[Dict[str, str]] = [{"role": "system", "content": ANSWER_SYSTEM_PROMPT}]
+        for item in history or []:
+            role = item.get("role")
+            content = (item.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    f"Cau hoi:\n{question}\n\n"
+                    f"Context retrieve duoc:\n\n" + "\n\n".join(context_blocks)
+                ),
+            }
+        )
+
         completion = self.client.chat.completions.create(
             model=self.settings.answer_model_name,
             temperature=0.2,
-            messages=[
-                {"role": "system", "content": ANSWER_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Cau hoi:\n{question}\n\n"
-                        f"Context retrieve duoc:\n\n" + "\n\n".join(context_blocks)
-                    ),
-                },
-            ],
+            messages=messages,
         )
         answer = completion.choices[0].message.content or "Chua tao duoc cau tra loi."
+        logger.info("answer service output | answer=%s", answer[:500])
         return {"answer": answer, "sources": sources}

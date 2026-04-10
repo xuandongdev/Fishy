@@ -1,9 +1,100 @@
-rag: uvicorn langchain2:app --host 0.0.0.0 --port 8000 --reload
-yolo: uvicorn app:app --host 0.0.0.0 --port 8001 --reload
-legal_ingest: uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
-trusted_rag: uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
+Fishy server run guide
 
-ollama run qwen2.5:7b
+1. Activate virtual environment
 
-env: .venv\Scripts\activate
-D:/Fishy/.venv/Scripts/Activate.ps1
+PowerShell:
+D:\Fishy\.venv\Scripts\Activate.ps1
+
+2. Start the production RAG flow
+
+This is the main RAG server now:
+cd D:\Fishy\server\RAG
+uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
+
+Notes:
+- This uses the custom RAG core, not langchain2.py
+- Flow: legal DB -> trusted cache -> Firecrawl fallback -> cache -> retrieve again -> answer
+- Firecrawl is not a local server to start separately
+- Firecrawl is only called by trusted_rag_app when fallback is needed
+- If cloudflared is available, the app updates app_config.rag_url automatically
+
+3. Start legal document ingest server
+
+cd D:\Fishy\server\RAG
+uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
+
+Use this server to ingest files into noidung2 via:
+- POST /api/legal-documents/ingest
+- If cloudflared is available, the app updates app_config.legal_ingest_url automatically
+
+4. Start YOLO server
+
+cd D:\Fishy\server\Yolo
+uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+
+5. Recommended servers to run together
+
+Terminal 1:
+cd D:\Fishy
+.\.venv\Scripts\Activate.ps1
+cd server\RAG
+uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
+
+Terminal 2:
+cd D:\Fishy
+.\.venv\Scripts\Activate.ps1
+cd server\RAG
+uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
+
+Terminal 3:
+cd D:\Fishy
+.\.venv\Scripts\Activate.ps1
+cd server\Yolo
+uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+
+6. Optional one-shot PowerShell launcher
+
+Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\RAG; uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload"
+Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\RAG; uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload"
+Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\Yolo; uvicorn app:app --host 0.0.0.0 --port 8001 --reload"
+
+7. API endpoints to test
+
+RAG chat:
+POST http://127.0.0.1:8000/api/chat/ask
+POST http://127.0.0.1:8000/chat
+
+Legal ingest:
+POST http://127.0.0.1:8010/api/legal-documents/ingest
+
+YOLO:
+POST http://127.0.0.1:8001/detect
+POST http://127.0.0.1:8001/detect-lite
+
+Cloudflare keys in app_config:
+- rag_url
+- legal_ingest_url
+- yolo_url
+
+8. Environment variables required for RAG
+
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+OPENAI_API_KEY
+HF_EMBED_MODEL
+ANSWER_MODEL
+FIRECRAWL_API_KEY
+FIRECRAWL_TIMEOUT_MS
+TRUSTED_WEB_SEARCH_LIMIT
+TRUSTED_WEB_MAX_SCRAPES
+TRUSTED_WEB_MAX_SOURCES
+RAG_LEGAL_SCORE_THRESHOLD
+RAG_TRUSTED_SCORE_THRESHOLD
+RAG_MIN_LEGAL_EVIDENCE
+RAG_MIN_TRUSTED_EVIDENCE
+RAG_PORT
+
+9. Legacy files
+
+langchain2.py and langchain3.py are legacy/experimental flows.
+Do not use them for the current production custom RAG pipeline.
