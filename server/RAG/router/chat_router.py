@@ -16,10 +16,9 @@ class ChatAskRequest(BaseModel):
 
 
 def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
-    router = APIRouter(prefix="/api/chat", tags=["chat"])
+    router = APIRouter(tags=["chat"])
 
-    @router.post("/ask")
-    async def ask_question(req: ChatAskRequest) -> Dict[str, Any]:
+    async def handle_question(req: ChatAskRequest) -> Dict[str, Any]:
         retrieval = retrieval_service.retrieve_context(req.question)
         final_hits = retrieval["combined_results"]
 
@@ -33,6 +32,8 @@ def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
                     "legal_results": len(retrieval["legal_results"]),
                     "trusted_cache_results": len(retrieval["trusted_cache_results"]),
                     "firecrawl_called": retrieval["firecrawl_called"],
+                    "searched_sources_count": retrieval["searched_sources_count"],
+                    "scraped_urls_count": retrieval["scraped_urls_count"],
                     "firecrawl_cached": retrieval["firecrawl_cached"],
                 },
             }
@@ -47,8 +48,18 @@ def create_chat_router(retrieval_service: RetrievalService) -> APIRouter:
                 "legal_results": len(retrieval["legal_results"]),
                 "trusted_cache_results": len(retrieval["trusted_cache_results"]),
                 "firecrawl_called": retrieval["firecrawl_called"],
+                "searched_sources_count": retrieval["searched_sources_count"],
+                "scraped_urls_count": retrieval["scraped_urls_count"],
                 "firecrawl_cached": retrieval["firecrawl_cached"],
             },
         }
+
+    @router.post("/api/chat/ask")
+    async def ask_question(req: ChatAskRequest) -> Dict[str, Any]:
+        return await handle_question(req)
+
+    @router.post("/chat")
+    async def ask_question_alias(req: ChatAskRequest) -> Dict[str, Any]:
+        return await handle_question(req)
 
     return router

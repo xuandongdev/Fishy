@@ -37,21 +37,25 @@ class TrustedWebCacheService:
         if "://" not in raw:
             raw = "https://" + raw
         parsed = urlparse(raw)
-        domain = (parsed.netloc or parsed.path).lower().strip()
+        domain = (parsed.hostname or parsed.netloc or parsed.path or "").strip().lower().rstrip(".")
         domain = re.sub(r"^www\.", "", domain)
         return domain
 
     def is_allowed_url(self, url: str, sources: List[Dict[str, Any]]) -> bool:
         target_domain = self.normalize_domain(url)
-        return any(target_domain == source["normalized_domain"] or target_domain.endswith("." + source["normalized_domain"]) for source in sources)
+        return self.map_url_to_source(url, sources) is not None
 
     def map_url_to_source(self, url: str, sources: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         target_domain = self.normalize_domain(url)
+        matched_sources = []
         for source in sources:
             domain = source["normalized_domain"]
             if target_domain == domain or target_domain.endswith("." + domain):
-                return source
-        return None
+                matched_sources.append(source)
+        if not matched_sources:
+            return None
+        matched_sources.sort(key=lambda item: len(item["normalized_domain"]), reverse=True)
+        return matched_sources[0]
 
     def upsert_article(
         self,
@@ -69,6 +73,13 @@ class TrustedWebCacheService:
             "url": url,
             "embedding": embedding_vector,
         }
+        try:
+            upserted = self.supabase.table("bai_viet_uy_tin").upsert(payload, on_conflict="url").execute()
+            if upserted.data:
+                return upserted.data[0]
+        except Exception as exc:
+            logger.warning("trusted cache upsert by url failed, fallback to update/insert: %s", exc)
+
         if existing.data:
             updated = self.supabase.table("bai_viet_uy_tin").update(payload).eq("id", existing.data[0]["id"]).execute()
             return updated.data[0]

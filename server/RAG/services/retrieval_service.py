@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from sentence_transformers import SentenceTransformer
 from supabase import Client
@@ -75,51 +75,61 @@ class RetrievalService:
         return self.trusted_cache_service.search_trusted_cache(question, query_vector, limit=5)
 
     def should_fallback_to_firecrawl(self, legal_results: List[Dict[str, Any]], trusted_results: List[Dict[str, Any]]) -> bool:
-        legal_eval = self.answer_service.assess_context(
-            question="legal_check",
+        legal_ready, _ = self._meets_evidence_threshold(
             hits=legal_results,
-            min_score=self.settings.rerank_threshold,
-            min_evidence=self.settings.min_legal_evidence,
+            min_score=self.settings.rag_legal_score_threshold,
+            min_evidence=self.settings.rag_min_legal_evidence,
         )
-        if not legal_eval.get("insufficient_context", True):
+        if legal_ready:
             return False
 
-        trusted_eval = self.answer_service.assess_context(
-            question="trusted_check",
+        trusted_ready, _ = self._meets_evidence_threshold(
             hits=trusted_results,
-            min_score=self.settings.trusted_threshold,
-            min_evidence=self.settings.min_trusted_evidence,
+            min_score=self.settings.rag_trusted_score_threshold,
+            min_evidence=self.settings.rag_min_trusted_evidence,
         )
-        return bool(trusted_eval.get("insufficient_context", True))
+        return not trusted_ready
 
     def retrieve_context(self, question: str) -> Dict[str, Any]:
         query_vector = self.embedding_model.encode("query: " + question, normalize_embeddings=True).tolist()
         legal_results = self.search_legal_db(question, query_vector)
-
-        legal_eval = self.answer_service.assess_context(
-            question=question,
+        legal_ready, legal_above_threshold = self._meets_evidence_threshold(
             hits=legal_results,
-            min_score=self.settings.rerank_threshold,
-            min_evidence=self.settings.min_legal_evidence,
+            min_score=self.settings.rag_legal_score_threshold,
+            min_evidence=self.settings.rag_min_legal_evidence,
         )
-        if not legal_eval.get("insufficient_context", True):
+        logger.info(
+            "retrieval legal | results=%s | above_threshold=%s | threshold=%.3f",
+            len(legal_results),
+            legal_above_threshold,
+            self.settings.rag_legal_score_threshold,
+        )
+
+        if legal_ready:
             return {
                 "combined_results": legal_results,
                 "legal_results": legal_results,
                 "trusted_cache_results": [],
                 "firecrawl_called": False,
                 "firecrawl_cached": 0,
+                "searched_sources_count": 0,
+                "scraped_urls_count": 0,
                 "used_fallback": False,
             }
 
         trusted_results = self.search_trusted_cache(question, query_vector)
-        trusted_eval = self.answer_service.assess_context(
-            question=question,
+        trusted_ready, trusted_above_threshold = self._meets_evidence_threshold(
             hits=trusted_results,
-            min_score=self.settings.trusted_threshold,
-            min_evidence=self.settings.min_trusted_evidence,
+            min_score=self.settings.rag_trusted_score_threshold,
+            min_evidence=self.settings.rag_min_trusted_evidence,
         )
-        if not trusted_eval.get("insufficient_context", True):
+        logger.info(
+            "retrieval trusted_cache | results=%s | above_threshold=%s | threshold=%.3f",
+            len(trusted_results),
+            trusted_above_threshold,
+            self.settings.rag_trusted_score_threshold,
+        )
+        if trusted_ready:
             combined = self._merge_results(legal_results, trusted_results)
             return {
                 "combined_results": combined,
@@ -127,19 +137,40 @@ class RetrievalService:
                 "trusted_cache_results": trusted_results,
                 "firecrawl_called": False,
                 "firecrawl_cached": 0,
+                "searched_sources_count": 0,
+                "scraped_urls_count": 0,
                 "used_fallback": False,
             }
 
-        cached_rows = self.firecrawl_service.fetch_and_cache(question)
+        if not self.firecrawl_service.enabled or not self.should_fallback_to_firecrawl(legal_results, trusted_results):
+            return {
+                "combined_results": self._merge_results(legal_results, trusted_results),
+                "legal_results": legal_results,
+                "trusted_cache_results": trusted_results,
+                "firecrawl_called": False,
+                "firecrawl_cached": 0,
+                "searched_sources_count": 0,
+                "scraped_urls_count": 0,
+                "used_fallback": False,
+            }
+
+        cached_result = self.firecrawl_service.fetch_and_cache(question)
         refreshed_trusted = self.search_trusted_cache(question, query_vector)
+        logger.info(
+            "retrieval final | firecrawl_called=%s | trusted_cache_results=%s",
+            True,
+            len(refreshed_trusted),
+        )
         combined = self._merge_results(legal_results, refreshed_trusted)
         return {
             "combined_results": combined,
             "legal_results": legal_results,
             "trusted_cache_results": refreshed_trusted,
-            "firecrawl_called": self.firecrawl_service.enabled,
-            "firecrawl_cached": len(cached_rows),
-            "used_fallback": self.firecrawl_service.enabled,
+            "firecrawl_called": True,
+            "firecrawl_cached": len(cached_result["cached_rows"]),
+            "searched_sources_count": cached_result["searched_sources_count"],
+            "scraped_urls_count": cached_result["scraped_urls_count"],
+            "used_fallback": True,
         }
 
     def _merge_results(self, legal_results: List[Dict[str, Any]], trusted_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -151,3 +182,10 @@ class RetrievalService:
             )
         )
         return combined[:6]
+
+    def _meets_evidence_threshold(self, hits: List[Dict[str, Any]], min_score: float, min_evidence: int) -> Tuple[bool, int]:
+        qualified_hits = [
+            item for item in hits
+            if float(item.get("hybrid_score", 0.0)) >= min_score
+        ]
+        return len(qualified_hits) >= min_evidence, len(qualified_hits)

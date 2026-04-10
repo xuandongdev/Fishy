@@ -20,7 +20,7 @@ settings = RAGSettings.from_env()
 supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 embedding_model = SentenceTransformer(settings.embedding_model_name)
 trusted_cache_service = TrustedWebCacheService(supabase, settings)
-embedding_service = EmbeddingService(settings)
+embedding_service = EmbeddingService(settings, embedding_model=embedding_model)
 answer_service = AnswerService(settings)
 firecrawl_service = FirecrawlService(settings, trusted_cache_service, embedding_service)
 retrieval_service = RetrievalService(
