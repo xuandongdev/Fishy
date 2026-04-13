@@ -28,7 +28,7 @@ SUPABASE_KEY: Optional[str] = None
 OPENAI_API_KEY: Optional[str] = None
 GENERATOR_MODEL = "gpt-4o-mini"
 GENERATOR_TEMPERATURE = 0.2
-MATCH_THRESHOLD = 0.60
+MATCH_THRESHOLD = 0.45
 MATCH_COUNT = 5
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
 HF_EMBED_MODEL = "intfloat/multilingual-e5-large"
@@ -102,7 +102,7 @@ def initialize_runtime() -> None:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
     GENERATOR_TEMPERATURE = float(os.getenv("GENERATOR_TEMPERATURE", "0.2"))
-    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.60"))
+    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.45"))
     MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
     OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-4o-mini")
     HF_EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "intfloat/multilingual-e5-large")
