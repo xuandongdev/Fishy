@@ -1,100 +1,27 @@
-Fishy server run guide
-
-1. Activate virtual environment
-
-PowerShell:
+env:
 D:\Fishy\.venv\Scripts\Activate.ps1
 
-2. Start the production RAG flow
-
-This is the main RAG server now:
+trusted_rag:
 cd D:\Fishy\server\RAG
 uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
 
-Notes:
-- This uses the custom RAG core, not langchain2.py
-- Flow: legal DB -> trusted cache -> Firecrawl fallback -> cache -> retrieve again -> answer
-- Firecrawl is not a local server to start separately
-- Firecrawl is only called by trusted_rag_app when fallback is needed
-- If cloudflared is available, the app updates app_config.rag_url automatically
-
-3. Start legal document ingest server
-
+legal_ingest:
 cd D:\Fishy\server\RAG
 uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
 
-Use this server to ingest files into noidung2 via:
-- POST /api/legal-documents/ingest
-- If cloudflared is available, the app updates app_config.legal_ingest_url automatically
-
-4. Start YOLO server
-
+yolo:
 cd D:\Fishy\server\Yolo
 uvicorn app:app --host 0.0.0.0 --port 8001 --reload
 
-5. Recommended servers to run together
+qwen:
+ollama run qwen2.5:7b
 
-Terminal 1:
-cd D:\Fishy
-.\.venv\Scripts\Activate.ps1
-cd server\RAG
-uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
+danh_gia_045:
+cd D:\Fishy\server\RAG
+$env:MATCH_THRESHOLD='0.45'
+..\.venv\Scripts\python.exe danh_gia_rag.py --mode full --eval-file danh_gia_rag.jsonl --run-tag custom_t045_k5 --predictions-file danh_gia_rag/danh_gia_045/rag_predictions_custom_t045_k5.jsonl --scores-file danh_gia_rag/danh_gia_045/rag_scores_custom_t045_k5.jsonl --report-csv danh_gia_rag/danh_gia_045/rag_evaluation_report_custom_t045_k5.csv --summary-json danh_gia_rag/danh_gia_045/rag_evaluation_summary_custom_t045_k5.json
 
-Terminal 2:
-cd D:\Fishy
-.\.venv\Scripts\Activate.ps1
-cd server\RAG
-uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
-
-Terminal 3:
-cd D:\Fishy
-.\.venv\Scripts\Activate.ps1
-cd server\Yolo
-uvicorn app:app --host 0.0.0.0 --port 8001 --reload
-
-6. Optional one-shot PowerShell launcher
-
-Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\RAG; uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload"
-Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\RAG; uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload"
-Start-Process powershell -ArgumentList "-NoExit","-Command","cd D:\Fishy; .\.venv\Scripts\Activate.ps1; cd server\Yolo; uvicorn app:app --host 0.0.0.0 --port 8001 --reload"
-
-7. API endpoints to test
-
-RAG chat:
-POST http://127.0.0.1:8000/api/chat/ask
-POST http://127.0.0.1:8000/chat
-
-Legal ingest:
-POST http://127.0.0.1:8010/api/legal-documents/ingest
-
-YOLO:
-POST http://127.0.0.1:8001/detect
-POST http://127.0.0.1:8001/detect-lite
-
-Cloudflare keys in app_config:
-- rag_url
-- legal_ingest_url
-- yolo_url
-
-8. Environment variables required for RAG
-
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-OPENAI_API_KEY
-HF_EMBED_MODEL
-ANSWER_MODEL
-FIRECRAWL_API_KEY
-FIRECRAWL_TIMEOUT_MS
-TRUSTED_WEB_SEARCH_LIMIT
-TRUSTED_WEB_MAX_SCRAPES
-TRUSTED_WEB_MAX_SOURCES
-RAG_LEGAL_SCORE_THRESHOLD
-RAG_TRUSTED_SCORE_THRESHOLD
-RAG_MIN_LEGAL_EVIDENCE
-RAG_MIN_TRUSTED_EVIDENCE
-RAG_PORT
-
-9. Legacy files
-
-langchain2.py and langchain3.py are legacy/experimental flows.
-Do not use them for the current production custom RAG pipeline.
+danh_gia_055:
+cd D:\Fishy\server\RAG
+$env:MATCH_THRESHOLD='0.55'
+..\.venv\Scripts\python.exe danh_gia_rag.py --mode full --eval-file danh_gia_rag.jsonl --run-tag custom_t055_k5 --predictions-file danh_gia_rag/danh_gia_055/rag_predictions_custom_t055_k5.jsonl --scores-file danh_gia_rag/danh_gia_055/rag_scores_custom_t055_k5.jsonl --report-csv danh_gia_rag/danh_gia_055/rag_evaluation_report_custom_t055_k5.csv --summary-json danh_gia_rag/danh_gia_055/rag_evaluation_summary_custom_t055_k5.json

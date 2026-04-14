@@ -142,6 +142,9 @@ class LangChainAdapter:
                 "sources": [],
                 "used_fallback": retrieval["used_fallback"],
                 "used_firecrawl": retrieval["firecrawl_called"],
+                # Added for evaluation: keep retrieval payload available so danh_gia_rag.py
+                # can reuse trusted_rag_app without changing its report schema.
+                "evaluation": self._build_evaluation_payload(final_hits),
                 "debug": self._build_debug_info(retrieval, branch="legal_rag"),
                 "meta": {
                     "used_legal_retrieval": True,
@@ -157,6 +160,8 @@ class LangChainAdapter:
             "sources": answer_bundle["sources"],
             "used_fallback": retrieval["used_fallback"],
             "used_firecrawl": retrieval["firecrawl_called"],
+            # Added for evaluation: expose normalized retrieval data for benchmark scripts.
+            "evaluation": self._build_evaluation_payload(final_hits),
             "debug": self._build_debug_info(retrieval, branch="legal_rag"),
             "meta": {
                 "used_legal_retrieval": True,
@@ -219,6 +224,24 @@ class LangChainAdapter:
             "scraped_urls_count": retrieval["scraped_urls_count"],
             "firecrawl_cached": retrieval["firecrawl_cached"],
         }
+
+    def _build_evaluation_payload(self, hits: List[Dict[str, Any]]) -> Dict[str, Any]:
+        # Added for evaluation: return just enough retrieval metadata for
+        # danh_gia_rag.py to compute retrieved_ids/contexts/retrieved_paths.
+        normalized_hits: List[Dict[str, Any]] = []
+        for item in hits:
+            normalized_hits.append(
+                {
+                    "primary_id": item.get("primary_id"),
+                    "label": item.get("label"),
+                    "content": item.get("content"),
+                    "url": item.get("url"),
+                    "source_type": item.get("source_type"),
+                    "hybrid_score": item.get("hybrid_score"),
+                }
+            )
+
+        return {"hits": normalized_hits}
 
     def _normalize_text(self, text: str) -> str:
         normalized = unicodedata.normalize("NFD", (text or "").strip().lower())

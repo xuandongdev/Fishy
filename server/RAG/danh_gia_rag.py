@@ -7,6 +7,8 @@ import json
 import os
 import re
 import sys
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Optional
 
 
@@ -32,6 +34,7 @@ MATCH_THRESHOLD = 0.45
 MATCH_COUNT = 5
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
 HF_EMBED_MODEL = "intfloat/multilingual-e5-large"
+TRUSTED_RAG_EVAL_URL: Optional[str] = None
 
 Dataset = None
 evaluate = None
@@ -57,6 +60,7 @@ def initialize_runtime() -> None:
     global MATCH_COUNT
     global OPENAI_JUDGE_MODEL
     global HF_EMBED_MODEL
+    global TRUSTED_RAG_EVAL_URL
     global Dataset
     global evaluate
     global RunConfig
@@ -106,6 +110,7 @@ def initialize_runtime() -> None:
     MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
     OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-4o-mini")
     HF_EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "intfloat/multilingual-e5-large")
+    TRUSTED_RAG_EVAL_URL = os.getenv("TRUSTED_RAG_EVAL_URL", "").strip() or None
 
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise ValueError("Thieu SUPABASE_URL hoac SUPABASE_SERVICE_ROLE_KEY trong file .env")
@@ -363,9 +368,56 @@ def build_single_sample_dataset(item: Dict[str, Any]):
     return Dataset.from_dict(data)
 
 
+def call_trusted_rag_eval(question: str) -> Dict[str, Any]:
+    initialize_runtime()
+    if not TRUSTED_RAG_EVAL_URL:
+        raise ValueError("Chua cau hinh TRUSTED_RAG_EVAL_URL de goi trusted_rag_app.")
+
+    payload = json.dumps({"question": question}, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        TRUSTED_RAG_EVAL_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"trusted_rag_app tra ve HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Khong ket noi duoc trusted_rag_app: {exc.reason}") from exc
+
+
+def extract_eval_fields_from_api(response: Dict[str, Any]) -> Dict[str, Any]:
+    # Added for trusted_rag_app evaluation: normalize API response so the rest of
+    # danh_gia_rag.py can keep the same output/report format as before.
+    hits = ((response or {}).get("evaluation") or {}).get("hits") or []
+    retrieved_ids = [item.get("primary_id") for item in hits if item.get("primary_id") is not None]
+    contexts = [(item.get("content") or "") for item in hits if item.get("content")]
+    retrieved_paths = [
+        item.get("label") or item.get("url")
+        for item in hits
+        if item.get("label") or item.get("url")
+    ]
+    return {
+        "answer": (response or {}).get("answer", ""),
+        "retrieved_ids": retrieved_ids,
+        "contexts": contexts,
+        "retrieved_paths": retrieved_paths,
+    }
+
+
 def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = None) -> None:
     initialize_runtime()
-    if not generator_chain:
+    use_trusted_rag_api = bool(TRUSTED_RAG_EVAL_URL)
+    if not use_trusted_rag_api and not generator_chain:
         raise ValueError("Thieu OPENAI_API_KEY hoac chua khoi tao duoc generator theo pipeline langchain2.")
 
     eval_items = load_jsonl(eval_file)
@@ -393,19 +445,34 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
         print(f"[{idx}/{total}] Dang xu ly: {question}")
 
         try:
-            docs = retriever.invoke(question)
-            contexts = [doc.page_content for doc in docs]
-            retrieved_ids = [
-                doc.metadata.get("sothutund")
-                for doc in docs
-                if isinstance(doc.metadata, dict) and doc.metadata.get("sothutund") is not None
-            ]
-            answer_text = generator_chain.invoke(
-                {
-                    "context": format_docs(docs),
-                    "question": question,
-                }
-            )
+            if use_trusted_rag_api:
+                # Added for migration: let generate_only call trusted_rag_app,
+                # while keeping judge_only/build_report unchanged.
+                api_result = call_trusted_rag_eval(question)
+                eval_result = extract_eval_fields_from_api(api_result)
+                contexts = eval_result["contexts"]
+                retrieved_ids = eval_result["retrieved_ids"]
+                answer_text = eval_result["answer"]
+                retrieved_paths = eval_result["retrieved_paths"]
+            else:
+                docs = retriever.invoke(question)
+                contexts = [doc.page_content for doc in docs]
+                retrieved_ids = [
+                    doc.metadata.get("sothutund")
+                    for doc in docs
+                    if isinstance(doc.metadata, dict) and doc.metadata.get("sothutund") is not None
+                ]
+                answer_text = generator_chain.invoke(
+                    {
+                        "context": format_docs(docs),
+                        "question": question,
+                    }
+                )
+                retrieved_paths = [
+                    doc.metadata.get("path")
+                    for doc in docs
+                    if isinstance(doc.metadata, dict)
+                ]
 
             retrieval_metrics = compute_retrieval_metrics(gold_ids, retrieved_ids)
             out = {
@@ -416,11 +483,7 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
                 "ground_truth": ground_truth,
                 "retrieved_ids": retrieved_ids,
                 "contexts": contexts,
-                "retrieved_paths": [
-                    doc.metadata.get("path")
-                    for doc in docs
-                    if isinstance(doc.metadata, dict)
-                ],
+                "retrieved_paths": retrieved_paths,
                 "answer": answer_text,
                 **retrieval_metrics,
             }

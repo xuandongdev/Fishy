@@ -1,6 +1,15 @@
 {"query_id": "cau_hoi_00101", "question": "Làm vậy có bị xem là vi phạm không: chở người trên thùng xe trái quy định; chở người trên nóc xe; để người đu bám ở cửa xe, bên ngoài thành xe khi xe đang chạy?", "gold_ids": [59], "ground_truth": "Chở người trên thùng xe trái quy định; chở người trên nóc xe; để người đu bám ở cửa xe, bên ngoài thành xe khi xe đang chạy"}
-{"query_id": "cau_hoi_00102", "question": "Tôi lái ô tô mà đỗ xe trên miệng cống thoát nước, miệng hầm của đường điện thoại, điện cao thế, chỗ dành riêng cho xe chữa cháy lấy nước thì là lỗi gì?", "gold_ids": [22], "ground_truth": "Đỗ xe không sát theo lề đường, vỉa hè phía bên phải theo chiều đi hoặc bánh xe gần nhất cách lề đường, vỉa hè quá 0,25 mét; đỗ xe trên đường dành riêng cho xe buýt; đỗ xe trên miệng cống thoát nước, miệng hầm của đường điện thoại, điện cao thế, chỗ dành riêng cho xe chữa cháy lấy nước; đỗ, để xe ở vỉa hè trái quy định của pháp luật; đỗ xe nơi có biển “Cấm đỗ xe” hoặc biển “Cấm dừng xe và đỗ xe”"}
-{"query_id": "cau_hoi_00103", "question": "Trường hợp tống 3 người trên xe thì có bị phạt không?", "gold_ids": [106], "ground_truth": "Chở theo 02 người trên xe, trừ trường hợp chở người bệnh đi cấp cứu, trẻ em dưới 12 tuổi, người già yếu hoặc người khuyết tật, áp giải người có hành vi vi phạm pháp luật"}
+{"query_id": "cau_hoi_00102",
+ "question": "Tôi lái ô tô mà đỗ xe trên miệng cống thoát nước, miệng hầm của đường điện thoại, điện cao thế, chỗ dành riêng cho xe chữa cháy lấy nước thì là lỗi gì?", "gold_ids": [22], "ground_truth": "Đỗ xe không sát theo lề đường, vỉa hè phía bên phải theo chiều đi hoặc bánh xe gần nhất cách lề đường, vỉa hè quá 0,25 mét; đỗ xe trên đường dành riêng cho xe buýt; đỗ xe trên miệng cống thoát nước, miệng hầm của đường điện thoại, điện cao thế, chỗ dành riêng cho xe chữa cháy lấy nước; đỗ, để xe ở vỉa hè trái quy định của pháp luật; đỗ xe nơi có biển “Cấm đỗ xe” hoặc biển “Cấm dừng xe và đỗ xe”"}
+{"query_id": "cau_hoi_00103",
+ "question": "Trường hợp tống 3 người trên xe thì có bị phạt không?",
+ "gold_ids": [106], 
+ "ground_truth": "Chở theo 02 người trên xe, trừ trường hợp chở người bệnh đi cấp cứu, 
+    trẻ em dưới 12 tuổi, người già yếu hoặc người khuyết tật, 
+    áp giải người có hành vi vi phạm pháp luật"
+}
+
+
 {"query_id": "cau_hoi_00104", "question": "Tôi đi xe máy mà dưới tốc độ tối thiểu trên đoạn đường bộ có quy định tốc độ tối thiểu cho phép có vi phạm không?", "gold_ids": [98], "ground_truth": "Điều khiển xe chạy dưới tốc độ tối thiểu trên đoạn đường bộ có quy định tốc độ tối thiểu cho phép"}
 {"query_id": "cau_hoi_00105", "question": "Nếu mình để vật nuôi đi trên đường bộ không bảo đảm an toàn cho phương tiện thì có dính lỗi không?", "gold_ids": [220], "ground_truth": "Để vật nuôi đi trên đường bộ không bảo đảm an toàn cho người, phương tiện đang tham gia giao thông"}
 {"query_id": "cau_hoi_00106", "question": "Tôi đi ô tô chạy quá tốc độ 35 cây thì là lỗi gì?", "gold_ids": [62], "ground_truth": "Điều khiển xe chạy quá tốc độ quy định trên 20 km/h đến 35 km/h"}
