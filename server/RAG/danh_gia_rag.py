@@ -28,10 +28,13 @@ if hasattr(sys.stderr, "reconfigure"):
 SUPABASE_URL: Optional[str] = None
 SUPABASE_KEY: Optional[str] = None
 OPENAI_API_KEY: Optional[str] = None
-GENERATOR_MODEL = "gpt-4o-mini"
+OLLAMA_MODEL = "qwen2.5:7b"
 GENERATOR_TEMPERATURE = 0.2
+
 MATCH_THRESHOLD = 0.45
 MATCH_COUNT = 5
+OUTPUT_DIR = "danh_gia_rag/danh_gia_045"
+
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
 HF_EMBED_MODEL = "intfloat/multilingual-e5-large"
 TRUSTED_RAG_EVAL_URL: Optional[str] = None
@@ -54,10 +57,11 @@ def initialize_runtime() -> None:
     global SUPABASE_URL
     global SUPABASE_KEY
     global OPENAI_API_KEY
-    global GENERATOR_MODEL
+    global OLLAMA_MODEL
     global GENERATOR_TEMPERATURE
     global MATCH_THRESHOLD
     global MATCH_COUNT
+    global OUTPUT_DIR
     global OPENAI_JUDGE_MODEL
     global HF_EMBED_MODEL
     global TRUSTED_RAG_EVAL_URL
@@ -94,7 +98,7 @@ def initialize_runtime() -> None:
     from langchain_core.documents import Document
     from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.output_parsers import StrOutputParser
-    from langchain_openai import ChatOpenAI
+    from langchain_ollama import ChatOllama
     from openai import OpenAI
     from ragas.llms import llm_factory
     from ragas.embeddings.base import BaseRagasEmbeddings
@@ -104,10 +108,8 @@ def initialize_runtime() -> None:
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
-    GENERATOR_TEMPERATURE = float(os.getenv("GENERATOR_TEMPERATURE", "0.2"))
-    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.45"))
-    MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
+    OLLAMA_MODEL = "qwen2.5:7b"
+    GENERATOR_TEMPERATURE = 0.2
     OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-4o-mini")
     HF_EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "intfloat/multilingual-e5-large")
     TRUSTED_RAG_EVAL_URL = os.getenv("TRUSTED_RAG_EVAL_URL", "").strip() or None
@@ -116,7 +118,7 @@ def initialize_runtime() -> None:
         raise ValueError("Thieu SUPABASE_URL hoac SUPABASE_SERVICE_ROLE_KEY trong file .env")
 
     if not OPENAI_API_KEY:
-        print("CANH BAO: Chua tim thay OPENAI_API_KEY trong .env. Cac buoc generate/judge co the khong chay duoc.")
+        print("CANH BAO: Chua tim thay OPENAI_API_KEY trong .env. Buoc judge co the khong chay duoc, nhung generate bang Ollama van co the chay.")
 
     print("\nDang khoi tao Supabase va model embedding E5...")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -206,14 +208,9 @@ def initialize_runtime() -> None:
             return docs
 
     openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-    generator_llm = (
-        ChatOpenAI(
-            model=GENERATOR_MODEL,
-            temperature=GENERATOR_TEMPERATURE,
-            api_key=OPENAI_API_KEY,
-        )
-        if OPENAI_API_KEY
-        else None
+    generator_llm = ChatOllama(
+        model=OLLAMA_MODEL,
+        temperature=GENERATOR_TEMPERATURE,
     )
     generator_prompt = ChatPromptTemplate.from_messages(
         [
@@ -418,7 +415,7 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
     initialize_runtime()
     use_trusted_rag_api = bool(TRUSTED_RAG_EVAL_URL)
     if not use_trusted_rag_api and not generator_chain:
-        raise ValueError("Thieu OPENAI_API_KEY hoac chua khoi tao duoc generator theo pipeline langchain2.")
+        raise ValueError("Chua khoi tao duoc generator Ollama. Hay chay `ollama run qwen2.5:7b` truoc khi goi danh_gia_rag.py.")
 
     eval_items = load_jsonl(eval_file)
     if not eval_items:
@@ -619,21 +616,14 @@ def build_report(scores_file: str, report_csv: str, summary_json: str) -> None:
 def main() -> None:
     global MATCH_THRESHOLD
     global MATCH_COUNT
+    global OUTPUT_DIR
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except Exception:
-        pass
-
-    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.60"))
-    MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
     threshold_tag = f"{MATCH_THRESHOLD:.2f}".replace(".", "")
-    default_run_tag = f"langchain2_t{threshold_tag}_k{MATCH_COUNT}"
+    default_run_tag = f"ollama_qwen25_7b_t{threshold_tag}_k{MATCH_COUNT}"
 
     parser = argparse.ArgumentParser(description="Danh gia RAG theo pipeline langchain2, co ho tro resume")
     parser.add_argument("--mode", choices=["generate_only", "judge_only", "build_report", "full"], default="full")
-    parser.add_argument("--eval-file", default="danh_gia_rag.jsonl")
+    parser.add_argument("--eval-file", default="backup.jsonl")
     parser.add_argument("--run-tag", default=default_run_tag)
     parser.add_argument("--predictions-file", default=None)
     parser.add_argument("--scores-file", default=None)
@@ -643,13 +633,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if not args.predictions_file:
-        args.predictions_file = f"danh_gia_rag/danh_gia_050/rag_predictions_{args.run_tag}.jsonl"
+        args.predictions_file = f"{OUTPUT_DIR}/rag_predictions_{args.run_tag}.jsonl"
     if not args.scores_file:
-        args.scores_file = f"danh_gia_rag/danh_gia_050/rag_scores_{args.run_tag}.jsonl"
+        args.scores_file = f"{OUTPUT_DIR}/rag_scores_{args.run_tag}.jsonl"
     if not args.report_csv:
-        args.report_csv = f"danh_gia_rag/danh_gia_050/rag_evaluation_report_{args.run_tag}.csv"
+        args.report_csv = f"{OUTPUT_DIR}/rag_evaluation_report_{args.run_tag}.csv"
     if not args.summary_json:
-        args.summary_json = f"danh_gia_rag/danh_gia_050/rag_evaluation_summary_{args.run_tag}.json"
+        args.summary_json = f"{OUTPUT_DIR}/rag_evaluation_summary_{args.run_tag}.json"
 
     if args.mode == "generate_only":
         generate_only(args.eval_file, args.predictions_file, args.limit)
