@@ -30,6 +30,8 @@ LEGAL_KEYWORDS = (
     "xe may",
     "o to",
     "oto",
+    "xe dap",
+    "di bo",
     "dang ky xe",
     "giay to",
     "hanh chinh",
@@ -46,8 +48,6 @@ LEGAL_KEYWORDS = (
 
 
 class LangChainAdapter:
-    """Thin orchestration layer around the existing custom RAG services."""
-
     def __init__(
         self,
         retrieval_service: RetrievalService,
@@ -109,6 +109,16 @@ class LangChainAdapter:
         self.conversation_manager.append_user_message(active_session_id, question)
         self.conversation_manager.append_assistant_message(active_session_id, answer)
 
+        evaluation_payload = result.get("evaluation") or {}
+        evaluation_payload["timings"] = {
+            **(evaluation_payload.get("timings") or {}),
+            "latency_ms": latency_ms,
+            "retrieval_time_ms": result.get("meta", {}).get("retrieval_time_ms"),
+            "rerank_time_ms": result.get("meta", {}).get("rerank_time_ms"),
+            "gen_time_ms": result.get("meta", {}).get("gen_time_ms"),
+        }
+        result["evaluation"] = evaluation_payload
+
         result["session_id"] = active_session_id
         result["route"] = route
         result["meta"] = {
@@ -142,17 +152,30 @@ class LangChainAdapter:
                 "sources": [],
                 "used_fallback": retrieval["used_fallback"],
                 "used_firecrawl": retrieval["firecrawl_called"],
-                # Added for evaluation: keep retrieval payload available so danh_gia_rag.py
-                # can reuse trusted_rag_app without changing its report schema.
-                "evaluation": self._build_evaluation_payload(final_hits),
+                "evaluation": self._build_evaluation_payload(
+                    final_hits=final_hits,
+                    candidate_hits=retrieval.get("candidate_results", []),
+                    timings={
+                        "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                        "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                        "gen_time_ms": 0.0,
+                    },
+                    detected_vehicle_type=retrieval.get("detected_vehicle_type", "khac"),
+                ),
                 "debug": self._build_debug_info(retrieval, branch="legal_rag"),
                 "meta": {
                     "used_legal_retrieval": True,
                     "source_count": 0,
+                    "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                    "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                    "gen_time_ms": 0.0,
+                    "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
                 },
             }
 
+        gen_start = time.perf_counter()
         answer_bundle = self.answer_service.generate_answer(question, final_hits, history=history)
+        gen_time_ms = round((time.perf_counter() - gen_start) * 1000, 2)
         logger.info("legal answer generated | session_id=%s | answer=%s", session_id, answer_bundle["answer"][:500])
         return {
             "success": True,
@@ -160,12 +183,24 @@ class LangChainAdapter:
             "sources": answer_bundle["sources"],
             "used_fallback": retrieval["used_fallback"],
             "used_firecrawl": retrieval["firecrawl_called"],
-            # Added for evaluation: expose normalized retrieval data for benchmark scripts.
-            "evaluation": self._build_evaluation_payload(final_hits),
+            "evaluation": self._build_evaluation_payload(
+                final_hits=final_hits,
+                candidate_hits=retrieval.get("candidate_results", []),
+                timings={
+                    "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                    "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                    "gen_time_ms": gen_time_ms,
+                },
+                detected_vehicle_type=retrieval.get("detected_vehicle_type", "khac"),
+            ),
             "debug": self._build_debug_info(retrieval, branch="legal_rag"),
             "meta": {
                 "used_legal_retrieval": True,
                 "source_count": len(answer_bundle["sources"]),
+                "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                "gen_time_ms": gen_time_ms,
+                "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
             },
         }
 
@@ -190,6 +225,8 @@ class LangChainAdapter:
                 "searched_sources_count": 0,
                 "scraped_urls_count": 0,
                 "firecrawl_cached": 0,
+                "candidate_results": 0,
+                "final_hits": 0,
             },
             "meta": {
                 "used_legal_retrieval": False,
@@ -219,29 +256,45 @@ class LangChainAdapter:
             "branch": branch,
             "legal_results": len(retrieval["legal_results"]),
             "trusted_cache_results": len(retrieval["trusted_cache_results"]),
+            "candidate_results": len(retrieval.get("candidate_results", [])),
+            "final_hits": len(retrieval.get("combined_results", [])),
             "firecrawl_called": retrieval["firecrawl_called"],
             "searched_sources_count": retrieval["searched_sources_count"],
             "scraped_urls_count": retrieval["scraped_urls_count"],
             "firecrawl_cached": retrieval["firecrawl_cached"],
+            "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
         }
 
-    def _build_evaluation_payload(self, hits: List[Dict[str, Any]]) -> Dict[str, Any]:
-        # Added for evaluation: return just enough retrieval metadata for
-        # danh_gia_rag.py to compute retrieved_ids/contexts/retrieved_paths.
-        normalized_hits: List[Dict[str, Any]] = []
-        for item in hits:
-            normalized_hits.append(
-                {
-                    "primary_id": item.get("primary_id"),
-                    "label": item.get("label"),
-                    "content": item.get("content"),
-                    "url": item.get("url"),
-                    "source_type": item.get("source_type"),
-                    "hybrid_score": item.get("hybrid_score"),
-                }
-            )
+    def _build_evaluation_payload(
+        self,
+        final_hits: List[Dict[str, Any]],
+        candidate_hits: Optional[List[Dict[str, Any]]] = None,
+        timings: Optional[Dict[str, Any]] = None,
+        detected_vehicle_type: str = "khac",
+    ) -> Dict[str, Any]:
+        def normalize(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            normalized_hits: List[Dict[str, Any]] = []
+            for item in items:
+                normalized_hits.append(
+                    {
+                        "primary_id": item.get("primary_id"),
+                        "label": item.get("label"),
+                        "content": item.get("content"),
+                        "url": item.get("url"),
+                        "source_type": item.get("source_type"),
+                        "vehicle_type": item.get("vehicle_type"),
+                        "hybrid_score": item.get("hybrid_score"),
+                        "rerank_score": item.get("rerank_score"),
+                    }
+                )
+            return normalized_hits
 
-        return {"hits": normalized_hits}
+        return {
+            "detected_vehicle_type": detected_vehicle_type,
+            "candidate_hits": normalize(candidate_hits or []),
+            "hits": normalize(final_hits),
+            "timings": timings or {},
+        }
 
     def _normalize_text(self, text: str) -> str:
         normalized = unicodedata.normalize("NFD", (text or "").strip().lower())

@@ -1,0 +1,14 @@
+{
+  "num_rows": 100,
+  "latency_ms": 148509.34909750024,
+  "retrieval_time_ms": 1183.7602875000812,
+  "rerank_time_ms": 0.0,
+  "gen_time_ms": 147325.58734000038,
+  "context_precision": 0.9026944444207546,
+  "context_recall": 0.9110952380952381,
+  "faithfulness": NaN,
+  "answer_relevancy": 0.7830788205080377,
+  "hit_at_k": 0.81,
+  "recall_at_k": 0.81,
+  "mrr": 0.6631666666666667
+}

@@ -24,6 +24,9 @@ class RAGSettings:
     rag_min_legal_evidence: int
     rag_min_trusted_evidence: int
     rag_port: int
+    rerank_model_name: str
+    rerank_candidate_count: int
+    rerank_final_top_k: int
 
     @classmethod
     def from_env(cls) -> "RAGSettings":
@@ -32,7 +35,10 @@ class RAGSettings:
             supabase_service_role_key=os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip(),
             openai_api_key=os.getenv("OPENAI_API_KEY", "").strip(),
             firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY", "").strip(),
-            embedding_model_name=os.getenv("HF_EMBED_MODEL", os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large")).strip(),
+            embedding_model_name=os.getenv(
+                "HF_EMBED_MODEL",
+                os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large"),
+            ).strip(),
             answer_model_name=os.getenv("ANSWER_MODEL", "gpt-4o-mini").strip(),
             rag_legal_score_threshold=float(os.getenv("RAG_LEGAL_SCORE_THRESHOLD", "0.45")),
             rag_trusted_score_threshold=float(os.getenv("RAG_TRUSTED_SCORE_THRESHOLD", "0.38")),
@@ -43,6 +49,9 @@ class RAGSettings:
             rag_min_legal_evidence=int(os.getenv("RAG_MIN_LEGAL_EVIDENCE", "2")),
             rag_min_trusted_evidence=int(os.getenv("RAG_MIN_TRUSTED_EVIDENCE", "2")),
             rag_port=int(os.getenv("RAG_PORT", "8000")),
+            rerank_model_name=os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3").strip(),
+            rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "10")),
+            rerank_final_top_k=int(os.getenv("RERANK_FINAL_TOP_K", "5")),
         )
 
     @property

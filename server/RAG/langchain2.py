@@ -138,7 +138,7 @@ def startup():
     
     threading.Thread(target=start_cloudflare_tunnel, args=(PORT_NUMBER, supabase), daemon=True).start()
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    llm = ChatOpenAI(model="-4o-mini", temperature=0.2)
     
     retriever = LegalSupabaseRetriever(supabase_client=supabase, embedding_model=embedding_model)
 
