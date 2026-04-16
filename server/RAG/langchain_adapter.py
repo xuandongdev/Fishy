@@ -106,6 +106,7 @@ class LangChainAdapter:
 
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
         answer = result.get("answer", "").strip()
+
         self.conversation_manager.append_user_message(active_session_id, question)
         self.conversation_manager.append_assistant_message(active_session_id, answer)
 
@@ -128,6 +129,7 @@ class LangChainAdapter:
             "latency_ms": latency_ms,
             "history_length": len(self.conversation_manager.get_history(active_session_id)),
         }
+
         logger.info(
             "chat completed | session_id=%s | route=%s | used_firecrawl=%s | source_count=%s | latency_ms=%s",
             active_session_id,
@@ -142,16 +144,16 @@ class LangChainAdapter:
     def handle_legal(self, question: str, session_id: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
         logger.info("legal route start | session_id=%s", session_id)
         retrieval = self.retrieval_service.retrieve_context(question)
-        final_hits = retrieval["combined_results"]
+        final_hits = retrieval.get("combined_results", [])
 
         if not final_hits:
-            logger.info("legal route no context | session_id=%s | firecrawl=%s", session_id, retrieval["firecrawl_called"])
+            logger.info("legal route no context | session_id=%s | firecrawl=%s", session_id, retrieval.get("firecrawl_called", False))
             return {
                 "success": True,
                 "answer": "Chua tim thay du du lieu dang tin cay trong legal_db, trusted cache, hoac Firecrawl de tra loi cau hoi nay.",
                 "sources": [],
-                "used_fallback": retrieval["used_fallback"],
-                "used_firecrawl": retrieval["firecrawl_called"],
+                "used_fallback": retrieval.get("used_fallback", False),
+                "used_firecrawl": retrieval.get("firecrawl_called", False),
                 "evaluation": self._build_evaluation_payload(
                     final_hits=final_hits,
                     candidate_hits=retrieval.get("candidate_results", []),
@@ -176,13 +178,14 @@ class LangChainAdapter:
         gen_start = time.perf_counter()
         answer_bundle = self.answer_service.generate_answer(question, final_hits, history=history)
         gen_time_ms = round((time.perf_counter() - gen_start) * 1000, 2)
+
         logger.info("legal answer generated | session_id=%s | answer=%s", session_id, answer_bundle["answer"][:500])
         return {
             "success": True,
             "answer": answer_bundle["answer"],
-            "sources": answer_bundle["sources"],
-            "used_fallback": retrieval["used_fallback"],
-            "used_firecrawl": retrieval["firecrawl_called"],
+            "sources": answer_bundle.get("sources", []),
+            "used_fallback": retrieval.get("used_fallback", False),
+            "used_firecrawl": retrieval.get("firecrawl_called", False),
             "evaluation": self._build_evaluation_payload(
                 final_hits=final_hits,
                 candidate_hits=retrieval.get("candidate_results", []),
@@ -196,7 +199,7 @@ class LangChainAdapter:
             "debug": self._build_debug_info(retrieval, branch="legal_rag"),
             "meta": {
                 "used_legal_retrieval": True,
-                "source_count": len(answer_bundle["sources"]),
+                "source_count": len(answer_bundle.get("sources", [])),
                 "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
                 "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
                 "gen_time_ms": gen_time_ms,
@@ -211,12 +214,23 @@ class LangChainAdapter:
         response = await chain.ainvoke({"question": question, "history": lc_history})
         answer = response.content if hasattr(response, "content") else str(response)
         logger.info("general answer generated | session_id=%s | answer=%s", session_id, answer[:500])
+
         return {
             "success": True,
             "answer": answer,
             "sources": [],
             "used_fallback": False,
             "used_firecrawl": False,
+            "evaluation": {
+                "detected_vehicle_type": "khac",
+                "candidate_hits": [],
+                "hits": [],
+                "timings": {
+                    "retrieval_time_ms": 0.0,
+                    "rerank_time_ms": 0.0,
+                    "gen_time_ms": 0.0,
+                },
+            },
             "debug": {
                 "branch": "general_chat",
                 "legal_results": 0,
@@ -227,10 +241,15 @@ class LangChainAdapter:
                 "firecrawl_cached": 0,
                 "candidate_results": 0,
                 "final_hits": 0,
+                "detected_vehicle_type": "khac",
             },
             "meta": {
                 "used_legal_retrieval": False,
                 "source_count": 0,
+                "retrieval_time_ms": 0.0,
+                "rerank_time_ms": 0.0,
+                "gen_time_ms": 0.0,
+                "detected_vehicle_type": "khac",
             },
         }
 
@@ -254,14 +273,14 @@ class LangChainAdapter:
     def _build_debug_info(self, retrieval: Dict[str, Any], branch: str) -> Dict[str, Any]:
         return {
             "branch": branch,
-            "legal_results": len(retrieval["legal_results"]),
-            "trusted_cache_results": len(retrieval["trusted_cache_results"]),
+            "legal_results": len(retrieval.get("legal_results", [])),
+            "trusted_cache_results": len(retrieval.get("trusted_cache_results", [])),
             "candidate_results": len(retrieval.get("candidate_results", [])),
             "final_hits": len(retrieval.get("combined_results", [])),
-            "firecrawl_called": retrieval["firecrawl_called"],
-            "searched_sources_count": retrieval["searched_sources_count"],
-            "scraped_urls_count": retrieval["scraped_urls_count"],
-            "firecrawl_cached": retrieval["firecrawl_cached"],
+            "firecrawl_called": retrieval.get("firecrawl_called", False),
+            "searched_sources_count": retrieval.get("searched_sources_count", 0),
+            "scraped_urls_count": retrieval.get("scraped_urls_count", 0),
+            "firecrawl_cached": retrieval.get("firecrawl_cached", 0),
             "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
         }
 
@@ -282,9 +301,13 @@ class LangChainAdapter:
                         "content": item.get("content"),
                         "url": item.get("url"),
                         "source_type": item.get("source_type"),
-                        "vehicle_type": item.get("vehicle_type"),
+                        "vehicle_type": item.get("vehicle_type") or item.get("loai_phuong_tien"),
                         "hybrid_score": item.get("hybrid_score"),
-                        "rerank_score": item.get("rerank_score"),
+                        "cross_encoder_score": item.get("cross_encoder_score"),
+                        "vehicle_bonus": item.get("vehicle_bonus"),
+                        "final_rerank_score": item.get("final_rerank_score"),
+                        # Alias de ben danh_gia hoac code cu van doc duoc
+                        "rerank_score": item.get("final_rerank_score", item.get("cross_encoder_score")),
                     }
                 )
             return normalized_hits

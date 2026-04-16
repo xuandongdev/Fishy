@@ -32,9 +32,9 @@ OPENAI_API_KEY: Optional[str] = None
 OLLAMA_MODEL = "qwen2.5:7b"
 GENERATOR_TEMPERATURE = 0.2
 
-MATCH_THRESHOLD = 0.60
+MATCH_THRESHOLD = 0.55
 MATCH_COUNT = 5
-OUTPUT_DIR = "danh_gia_rag/danh_gia_060"
+OUTPUT_DIR = "danh_gia_rag/danh_gia_055"
 
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
 JUDGE_MAX_TOKENS = 4096

@@ -50,7 +50,7 @@ class RAGSettings:
             rag_min_trusted_evidence=int(os.getenv("RAG_MIN_TRUSTED_EVIDENCE", "2")),
             rag_port=int(os.getenv("RAG_PORT", "8000")),
             rerank_model_name=os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3").strip(),
-            rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "10")),
+            rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "15")),
             rerank_final_top_k=int(os.getenv("RERANK_FINAL_TOP_K", "5")),
         )
 

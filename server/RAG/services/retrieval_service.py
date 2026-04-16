@@ -33,7 +33,10 @@ class RetrievalService:
         self.trusted_cache_service = trusted_cache_service
         self.firecrawl_service = firecrawl_service
         self.answer_service = answer_service
-        self.reranker = CrossEncoder(self.settings.rerank_model_name)
+        self.rerank_model_name = getattr(self.settings, "rerank_model_name", "BAAI/bge-reranker-v2-m3")
+        self.rerank_candidate_count = int(getattr(self.settings, "rerank_candidate_count", 15))
+        self.rerank_final_top_k = int(getattr(self.settings, "rerank_final_top_k", 5))
+        self.reranker = CrossEncoder(self.rerank_model_name)
 
     def detect_vehicle_type(self, query: str) -> str:
         q = (query or "").strip().lower()
@@ -83,7 +86,7 @@ class RetrievalService:
                     "vector_truy_van": query_vector,
                     "van_ban_truy_van": question,
                     "nguong_khop": self.settings.rag_legal_score_threshold,
-                    "so_luong_ket_qua": self.settings.rerank_candidate_count,
+                    "so_luong_ket_qua": self.rerank_candidate_count,
                     "so_km_truy_van": query_km,
                     "p_loai_phuong_tien_truy_van": vehicle_type,
                 },
@@ -104,7 +107,7 @@ class RetrievalService:
                 {
                     "query_text": question,
                     "query_embedding": vector_literal,
-                    "result_limit": self.settings.rerank_candidate_count,
+                    "result_limit": self.rerank_candidate_count,
                 },
             ).execute()
             hits = legacy.data or []
@@ -115,7 +118,7 @@ class RetrievalService:
         return self.trusted_cache_service.search_trusted_cache(
             question,
             query_vector,
-            limit=self.settings.rerank_candidate_count,
+            limit=self.rerank_candidate_count,
         )
 
     def should_fallback_to_firecrawl(self, legal_results: List[Dict[str, Any]], trusted_results: List[Dict[str, Any]]) -> bool:
@@ -238,14 +241,25 @@ class RetrievalService:
             key=lambda item: (
                 0 if item.get("source_type") == "legal_db" else 1,
                 -float(item.get("hybrid_score", 0.0)),
+                -float(item.get("semantic_score", 0.0)),
             )
         )
-        return combined[: self.settings.rerank_candidate_count]
+        return combined[: self.rerank_candidate_count]
+
+    def _vehicle_bonus(self, query_vehicle: str, doc_vehicle: str) -> float:
+        if query_vehicle == "khac":
+            return 0.0
+        if doc_vehicle == query_vehicle:
+            return 0.15
+        if doc_vehicle == "khac":
+            return 0.03
+        return -0.05
 
     def _rerank_results(self, question: str, hits: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         if not hits:
             return []
 
+        query_vehicle = self.detect_vehicle_type(question)
         pairs = []
         for item in hits:
             content = (item.get("content") or "").strip()
@@ -253,16 +267,31 @@ class RetrievalService:
             text_for_rank = f"{label}\n{content}" if label else content
             pairs.append((question, text_for_rank))
 
-        scores = self.reranker.predict(pairs)
+        ce_scores = self.reranker.predict(pairs)
 
         reranked: List[Dict[str, Any]] = []
-        for item, score in zip(hits, scores):
+        for item, ce_score in zip(hits, ce_scores):
+            doc_vehicle = self._normalize_vehicle_type(
+                item.get("vehicle_type") or item.get("loai_phuong_tien")
+            )
+            vehicle_bonus = self._vehicle_bonus(query_vehicle, doc_vehicle)
+
             enriched = dict(item)
-            enriched["rerank_score"] = float(score)
+            enriched["vehicle_type"] = doc_vehicle
+            enriched["cross_encoder_score"] = float(ce_score)
+            enriched["vehicle_bonus"] = float(vehicle_bonus)
+            enriched["final_rerank_score"] = float(ce_score) + float(vehicle_bonus)
             reranked.append(enriched)
 
-        reranked.sort(key=lambda x: x.get("rerank_score", 0.0), reverse=True)
-        return reranked[: self.settings.rerank_final_top_k]
+        reranked.sort(
+            key=lambda x: (
+                x.get("final_rerank_score", 0.0),
+                x.get("cross_encoder_score", 0.0),
+                x.get("hybrid_score", 0.0),
+            ),
+            reverse=True,
+        )
+        return reranked[: self.rerank_final_top_k]
 
     def _meets_evidence_threshold(self, hits: List[Dict[str, Any]], min_score: float, min_evidence: int) -> Tuple[bool, int]:
         qualified_hits = [
@@ -288,6 +317,7 @@ class RetrievalService:
                     "content": item.get("noidung", ""),
                     "url": None,
                     "vehicle_type": self._normalize_vehicle_type(item.get("loai_phuong_tien")),
+                    "loai_phuong_tien": self._normalize_vehicle_type(item.get("loai_phuong_tien")),
                     "lexical_score": score,
                     "semantic_score": score,
                     "hybrid_score": score,
