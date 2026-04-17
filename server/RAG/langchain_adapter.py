@@ -1,6 +1,5 @@
 import logging
 import time
-import unicodedata
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -11,40 +10,18 @@ from langchain_openai import ChatOpenAI
 from config.settings import RAGSettings
 from services.answer_service import AnswerService
 from services.conversation_manager import ConversationManager
+from services.legal_query_context import (
+    GENERAL_CHAT_KEYWORDS,
+    build_effective_legal_question,
+    history_suggests_legal,
+    is_followup_question,
+    looks_like_legal_question,
+    normalize_legal_text,
+)
 from services.retrieval_service import RetrievalService
 
 
 logger = logging.getLogger("LANGCHAIN_ADAPTER")
-
-LEGAL_KEYWORDS = (
-    "luat",
-    "nghi dinh",
-    "quy dinh",
-    "xu phat",
-    "muc phat",
-    "vi pham",
-    "gplx",
-    "giay phep lai xe",
-    "nong do con",
-    "bien bao",
-    "xe may",
-    "o to",
-    "oto",
-    "xe dap",
-    "di bo",
-    "dang ky xe",
-    "giay to",
-    "hanh chinh",
-    "giao thong",
-    "vuot den do",
-    "den do",
-    "qua toc do",
-    "toc do",
-    "lan duong",
-    "bao nhieu tien",
-    "bao nhieu",
-    "xe o to",
-)
 
 
 class LangChainAdapter:
@@ -72,7 +49,9 @@ class LangChainAdapter:
                         "Ban la tro ly AI huu ich cua Fishy. "
                         "Tra loi ro rang, than thien, va trung thuc. "
                         "Neu cau hoi lien quan den phap ly chuyen sau ma ban khong co ngu can cu, "
-                        "hay noi ro gioi han thay vi khang dinh chac chan."
+                        "hay noi ro gioi han thay vi khang dinh chac chan. "
+                        "Tuyet doi khong duoc tu khang dinh muc phat, dieu luat, ten nghi dinh, "
+                        "hay ket luan phap ly cu the neu khong co can cu ro rang trong hoi thoai hien tai."
                     ),
                 ),
                 MessagesPlaceholder(variable_name="history"),
@@ -80,11 +59,19 @@ class LangChainAdapter:
             ]
         )
 
-    def route_question(self, question: str) -> str:
-        normalized = self._normalize_text(question)
-        if any(keyword in normalized for keyword in LEGAL_KEYWORDS):
+    def route_question(self, question: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+        normalized = normalize_legal_text(question)
+        history = history or []
+
+        if is_followup_question(normalized) and history_suggests_legal(history):
             return "legal_rag"
-        return "general_chat"
+        if history_suggests_legal(history) and len(normalized.split()) <= 12:
+            return "legal_rag"
+        if looks_like_legal_question(normalized):
+            return "legal_rag"
+        if any(keyword in normalized for keyword in GENERAL_CHAT_KEYWORDS):
+            return "general_chat"
+        return "legal_rag"
 
     async def chat(
         self,
@@ -94,7 +81,7 @@ class LangChainAdapter:
     ) -> Dict[str, Any]:
         active_session_id = session_id or str(uuid.uuid4())
         history = self._build_history(active_session_id, chat_history)
-        route = self.route_question(question)
+        route = self.route_question(question, history=history)
         start_time = time.perf_counter()
 
         logger.info("chat incoming | session_id=%s | route=%s | question=%s", active_session_id, route, question[:200])
@@ -143,7 +130,28 @@ class LangChainAdapter:
 
     def handle_legal(self, question: str, session_id: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
         logger.info("legal route start | session_id=%s", session_id)
-        retrieval = self.retrieval_service.retrieve_context(question)
+        question_context = build_effective_legal_question(question, history)
+        original_question = str(question_context["original_question"])
+        effective_question = str(question_context["effective_question"])
+        detected_vehicle_type = str(question_context["detected_vehicle_type"])
+        query_km = question_context.get("query_km")
+
+        logger.info(
+            "legal question context | session_id=%s | original=%s | effective=%s | vehicle_type=%s | query_km=%s | is_followup=%s",
+            session_id,
+            original_question[:200],
+            effective_question[:200],
+            detected_vehicle_type,
+            query_km,
+            question_context.get("is_followup", False),
+        )
+
+        retrieval = self.retrieval_service.retrieve_context(
+            effective_question,
+            original_question=original_question,
+            detected_vehicle_type=detected_vehicle_type,
+            query_km=query_km if isinstance(query_km, (int, float)) else None,
+        )
         final_hits = retrieval.get("combined_results", [])
 
         if not final_hits:
@@ -172,11 +180,21 @@ class LangChainAdapter:
                     "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
                     "gen_time_ms": 0.0,
                     "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
+                    "query_km": retrieval.get("query_km"),
+                    "original_question": original_question,
+                    "effective_question": effective_question,
                 },
             }
 
         gen_start = time.perf_counter()
-        answer_bundle = self.answer_service.generate_answer(question, final_hits, history=history)
+        answer_bundle = self.answer_service.generate_answer(
+            original_question=original_question,
+            effective_question=effective_question,
+            hits=final_hits,
+            history=history,
+            query_km=retrieval.get("query_km"),
+            detected_vehicle_type=retrieval.get("detected_vehicle_type", "khac"),
+        )
         gen_time_ms = round((time.perf_counter() - gen_start) * 1000, 2)
 
         logger.info("legal answer generated | session_id=%s | answer=%s", session_id, answer_bundle["answer"][:500])
@@ -204,6 +222,9 @@ class LangChainAdapter:
                 "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
                 "gen_time_ms": gen_time_ms,
                 "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
+                "query_km": retrieval.get("query_km"),
+                "original_question": original_question,
+                "effective_question": effective_question,
             },
         }
 
@@ -318,7 +339,3 @@ class LangChainAdapter:
             "hits": normalize(final_hits),
             "timings": timings or {},
         }
-
-    def _normalize_text(self, text: str) -> str:
-        normalized = unicodedata.normalize("NFD", (text or "").strip().lower())
-        return "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")

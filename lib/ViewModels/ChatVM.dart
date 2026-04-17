@@ -22,6 +22,7 @@ class ChatViewModel extends ChangeNotifier {
 
   void clearMessages() {
     messages.clear();
+    ChatService.resetChatSession();
     notifyListeners();
   }
 

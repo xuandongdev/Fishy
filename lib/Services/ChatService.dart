@@ -10,6 +10,7 @@ import '../Configs/ServerConfig.dart';
 class ChatService {
   static String _chatUrl = "";
   static String _yoloUrl = "";
+  static String? _sessionId;
 
   static Future<void> initializeApiUrl() async {
     try {
@@ -85,6 +86,10 @@ class ChatService {
   static String _parseChatResponse(http.Response response) {
     if (response.statusCode == 200) {
       final payload = jsonDecode(utf8.decode(response.bodyBytes));
+      final sessionId = (payload['session_id'] ?? '').toString().trim();
+      if (sessionId.isNotEmpty) {
+        _sessionId = sessionId;
+      }
       return payload['answer'] ?? 'AI khong phan hoi.';
     }
     return 'Loi Server (${response.statusCode})';
@@ -99,9 +104,17 @@ class ChatService {
         .post(
           Uri.parse('$baseUrl/chat'),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'question': question, 'history': history}),
+          body: jsonEncode({
+            'question': question,
+            'history': history,
+            'session_id': _sessionId,
+          }),
         )
         .timeout(const Duration(seconds: 120));
+  }
+
+  static void resetChatSession() {
+    _sessionId = null;
   }
 
   static Future<Map<String, dynamic>> uploadToYOLO(Uint8List bytes, String filename) async {

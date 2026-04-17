@@ -31,7 +31,7 @@ def create_chat_router(
                 chat_history=req.history,
             )
 
-        retrieval = retrieval_service.retrieve_context(req.question)
+        retrieval = retrieval_service.retrieve_context(req.question, original_question=req.question)
         final_hits = retrieval["combined_results"]
 
         if not final_hits:
@@ -53,7 +53,14 @@ def create_chat_router(
                 },
             }
 
-        answer_bundle = retrieval_service.answer_service.generate_answer(req.question, final_hits)
+        answer_bundle = retrieval_service.answer_service.generate_answer(
+            original_question=req.question,
+            effective_question=retrieval.get("effective_question", req.question),
+            hits=final_hits,
+            history=req.history,
+            query_km=retrieval.get("query_km"),
+            detected_vehicle_type=retrieval.get("detected_vehicle_type", "khac"),
+        )
         return {
             "success": True,
             "answer": answer_bundle["answer"],
