@@ -1,55 +1,123 @@
-import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/material.dart';
+import 'dart:math' as math;
 import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
 
 import '../Models/YoloBoxModel.dart';
 
 class BBoxPainter extends CustomPainter {
-  final List<YoloBox> boxes;
-  final double imgW, imgH; // size ảnh mà YOLO detect (w,h trả từ server)
+  const BBoxPainter({
+    required this.boxes,
+    required this.imgW,
+    required this.imgH,
+    this.fit = BoxFit.fill,
+  });
 
-  BBoxPainter({required this.boxes, required this.imgW, required this.imgH});
+  final List<YoloBox> boxes;
+  final double imgW;
+  final double imgH;
+  final BoxFit fit;
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (imgW <= 0 || imgH <= 0) return;
+    if (imgW <= 0 || imgH <= 0 || boxes.isEmpty) return;
 
-    final sx = size.width / imgW;
-    final sy = size.height / imgH;
+    final _PaintTransform tf = _resolveTransform(size);
 
-    final paint = Paint()
+    final boxPaint = Paint()
+      ..color = Colors.redAccent
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+      ..strokeWidth = 2.5;
 
+    final labelBg = Paint()..color = Colors.black54;
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (final b in boxes) {
-      final rect = Rect.fromLTRB(b.x1 * sx, b.y1 * sy, b.x2 * sx, b.y2 * sy);
-      canvas.drawRect(rect, paint);
+      final rect = Rect.fromLTRB(
+        tf.offsetX + b.x1 * tf.scaleX,
+        tf.offsetY + b.y1 * tf.scaleY,
+        tf.offsetX + b.x2 * tf.scaleX,
+        tf.offsetY + b.y2 * tf.scaleY,
+      );
 
-      final label = "${b.name.toUpperCase()} ${(b.conf * 100).toStringAsFixed(0)}%";
+      canvas.drawRect(rect, boxPaint);
+
+      final label = '${b.name.toUpperCase()} ${(b.conf * 100).toStringAsFixed(0)}%';
       textPainter.text = TextSpan(
         text: label,
-        style: const TextStyle(color: Colors.white, fontSize: 12, backgroundColor: Colors.black54),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       );
-      textPainter.layout();
-      textPainter.paint(canvas, Offset(rect.left, (rect.top - 16).clamp(0, size.height)));
+      textPainter.layout(maxWidth: size.width - 12);
+
+      final labelX = rect.left
+          .clamp(0.0, math.max(0.0, size.width - textPainter.width - 8))
+          .toDouble();
+      final labelY = (rect.top - textPainter.height - 6)
+          .clamp(0.0, math.max(0.0, size.height - textPainter.height - 4))
+          .toDouble();
+
+      final bgRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          labelX - 4,
+          labelY - 2,
+          textPainter.width + 8,
+          textPainter.height + 4,
+        ),
+        const Radius.circular(4),
+      );
+
+      canvas.drawRRect(bgRect, labelBg);
+      textPainter.paint(canvas, Offset(labelX, labelY));
     }
+  }
+
+  _PaintTransform _resolveTransform(Size size) {
+    if (fit == BoxFit.cover) {
+      final scale = math.max(size.width / imgW, size.height / imgH);
+      final drawW = imgW * scale;
+      final drawH = imgH * scale;
+      return _PaintTransform(
+        scaleX: scale,
+        scaleY: scale,
+        offsetX: (size.width - drawW) / 2,
+        offsetY: (size.height - drawH) / 2,
+      );
+    }
+
+    if (fit == BoxFit.contain) {
+      final scale = math.min(size.width / imgW, size.height / imgH);
+      final drawW = imgW * scale;
+      final drawH = imgH * scale;
+      return _PaintTransform(
+        scaleX: scale,
+        scaleY: scale,
+        offsetX: (size.width - drawW) / 2,
+        offsetY: (size.height - drawH) / 2,
+      );
+    }
+
+    return _PaintTransform(
+      scaleX: size.width / imgW,
+      scaleY: size.height / imgH,
+      offsetX: 0,
+      offsetY: 0,
+    );
   }
 
   @override
   bool shouldRepaint(covariant BBoxPainter oldDelegate) {
-    return oldDelegate.boxes != boxes || oldDelegate.imgW != imgW || oldDelegate.imgH != imgH;
+    return oldDelegate.boxes != boxes ||
+        oldDelegate.imgW != imgW ||
+        oldDelegate.imgH != imgH ||
+        oldDelegate.fit != fit;
   }
 }
 
 class YoloImageViewer extends StatelessWidget {
-  final Uint8List imageBytes;
-  final List<YoloBox> boxes;
-  final double originalWidth;
-  final double originalHeight;
-
   const YoloImageViewer({
     super.key,
     required this.imageBytes,
@@ -58,28 +126,45 @@ class YoloImageViewer extends StatelessWidget {
     required this.originalHeight,
   });
 
+  final Uint8List imageBytes;
+  final List<YoloBox> boxes;
+  final double originalWidth;
+  final double originalHeight;
+
   @override
   Widget build(BuildContext context) {
-    // Nếu API trả về kích thước lỗi (<= 0), ta fallback hiển thị ảnh gốc bình thường
     if (originalWidth <= 0 || originalHeight <= 0) {
       return Image.memory(imageBytes);
     }
 
-    // AspectRatio giúp khung vẽ luôn đồng dạng với tỷ lệ của ảnh gốc
     return AspectRatio(
       aspectRatio: originalWidth / originalHeight,
       child: CustomPaint(
-        // Gọi nguyên si BBoxPainter của bạn vào đây, không cần sửa gì cả!
         foregroundPainter: BBoxPainter(
           boxes: boxes,
           imgW: originalWidth,
           imgH: originalHeight,
+          fit: BoxFit.fill,
         ),
         child: Image.memory(
           imageBytes,
-          fit: BoxFit.fill, // Bắt buộc dùng fill để ảnh gốc căng tràn khít với AspectRatio
+          fit: BoxFit.fill,
         ),
       ),
     );
   }
+}
+
+class _PaintTransform {
+  const _PaintTransform({
+    required this.scaleX,
+    required this.scaleY,
+    required this.offsetX,
+    required this.offsetY,
+  });
+
+  final double scaleX;
+  final double scaleY;
+  final double offsetX;
+  final double offsetY;
 }

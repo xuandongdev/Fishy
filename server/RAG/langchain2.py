@@ -84,8 +84,8 @@ class LegalSupabaseRetriever(BaseRetriever):
         if query_km:
             logger.info(f"PHÁT HIỆN TRUY VẤN TỐC ĐỘ: {query_km} km/h")
 
-        # Gọi RPC match_legal_docs_v2
-        res = self.supabase_client.rpc("match_legal_docs_v2", {
+        # Gọi RPC match_legal_docs_v3
+        res = self.supabase_client.rpc("match_legal_docs_v3", {
             "vector_truy_van": query_vector,
             "van_ban_truy_van": query,
             "nguong_khop": 0.45,
@@ -138,7 +138,7 @@ def startup():
     
     threading.Thread(target=start_cloudflare_tunnel, args=(PORT_NUMBER, supabase), daemon=True).start()
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
+    llm = ChatOpenAI(model="-4o-mini", temperature=0.2)
     
     retriever = LegalSupabaseRetriever(supabase_client=supabase, embedding_model=embedding_model)
 

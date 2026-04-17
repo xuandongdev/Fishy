@@ -1,81 +1,155 @@
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../Configs/ServerConfig.dart';
 
 class ChatService {
   static String _chatUrl = "";
   static String _yoloUrl = "";
+  static String? _sessionId;
 
   static Future<void> initializeApiUrl() async {
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase.from('app_config').select('key, value').inFilter('key', ['rag_url', 'yolo_url']);
+      final response = await supabase
+          .from('app_config')
+          .select('key, value')
+          .inFilter('key', ['rag_url', 'yolo_url']);
 
       if (response is List && response.isNotEmpty) {
         for (final item in response) {
-          String val = (item['value'] ?? '').toString().replaceAll(RegExp(r'/$'), '');
-          if (item['key'] == 'rag_url') _chatUrl = val;
-          if (item['key'] == 'yolo_url') _yoloUrl = val;
+          final value = (item['value'] ?? '').toString().replaceAll(RegExp(r'/$'), '');
+          if (item['key'] == 'rag_url') {
+            _chatUrl = value;
+          }
+          if (item['key'] == 'yolo_url') {
+            _yoloUrl = value;
+          }
         }
       }
-      if (_chatUrl.isEmpty || _yoloUrl.isEmpty) _useFallbackUrl();
-    } catch (_) { _useFallbackUrl(); }
+      if (_chatUrl.isEmpty || _yoloUrl.isEmpty) {
+        _useFallbackUrl();
+      }
+    } catch (_) {
+      _useFallbackUrl();
+    }
   }
 
   static void _useFallbackUrl() {
-    String host = (defaultTargetPlatform == TargetPlatform.android) ? "10.0.2.2" : "127.0.0.1";
-    if (_chatUrl.isEmpty) _chatUrl = "http://$host:8000";
-    if (_yoloUrl.isEmpty) _yoloUrl = "http://$host:8001";
+    if (_chatUrl.isEmpty) {
+      _chatUrl = ServerConfig.ragBaseUrl;
+    }
+    if (_yoloUrl.isEmpty) {
+      _yoloUrl = ServerConfig.yoloBaseUrl;
+    }
   }
 
-  // RAG Chat - Nhận trọn gói (Khớp với Server mới)
-  static Future<String> getChat(String question, {List<Map<String, String>> history = const []}) async {
-    if (_chatUrl.isEmpty) return "Chưa có URL Server Chat.";
+  static Future<String> getChat(
+    String question, {
+    List<Map<String, String>> history = const [],
+  }) async {
+    if (_chatUrl.isEmpty) {
+      _useFallbackUrl();
+    }
+
     try {
-      final res = await http.post(
-        Uri.parse('$_chatUrl/chat'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'question': question, 'history': history}),
-      ).timeout(const Duration(seconds: 120)); // Đã nới lỏng timeout
-
-      if (res.statusCode == 200) {
-        return jsonDecode(utf8.decode(res.bodyBytes))['answer'] ?? "AI không phản hồi.";
+      final response = await _postChat(
+        baseUrl: _chatUrl,
+        question: question,
+        history: history,
+      );
+      return _parseChatResponse(response);
+    } catch (error) {
+      final fallbackUrl = ServerConfig.ragBaseUrl;
+      if (_chatUrl == fallbackUrl) {
+        return 'Loi ket noi: $error';
       }
-      return "Lỗi Server (${res.statusCode})";
-    } catch (e) { return "Lỗi kết nối: $e"; }
+
+      try {
+        _chatUrl = fallbackUrl;
+        final response = await _postChat(
+          baseUrl: _chatUrl,
+          question: question,
+          history: history,
+        );
+        return _parseChatResponse(response);
+      } catch (fallbackError) {
+        return 'Loi ket noi: $fallbackError';
+      }
+    }
   }
 
-  // ====== GIỮ NGUYÊN YOLO CHO THANH ======
+  static String _parseChatResponse(http.Response response) {
+    if (response.statusCode == 200) {
+      final payload = jsonDecode(utf8.decode(response.bodyBytes));
+      final sessionId = (payload['session_id'] ?? '').toString().trim();
+      if (sessionId.isNotEmpty) {
+        _sessionId = sessionId;
+      }
+      return payload['answer'] ?? 'AI khong phan hoi.';
+    }
+    return 'Loi Server (${response.statusCode})';
+  }
+
+  static Future<http.Response> _postChat({
+    required String baseUrl,
+    required String question,
+    required List<Map<String, String>> history,
+  }) {
+    return http
+        .post(
+          Uri.parse('$baseUrl/chat'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'question': question,
+            'history': history,
+            'session_id': _sessionId,
+          }),
+        )
+        .timeout(const Duration(seconds: 120));
+  }
+
+  static void resetChatSession() {
+    _sessionId = null;
+  }
+
   static Future<Map<String, dynamic>> uploadToYOLO(Uint8List bytes, String filename) async {
-    if (_yoloUrl.isEmpty) return {"summary": "Chưa có URL YOLO"};
+    if (_yoloUrl.isEmpty) {
+      _useFallbackUrl();
+    }
     try {
-      final req = http.MultipartRequest('POST', Uri.parse('$_yoloUrl/detect'));
-      req.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
-      final res = await http.Response.fromStream(await req.send());
-      
-      if (res.statusCode == 200) {
-        return jsonDecode(utf8.decode(res.bodyBytes));
-      } else {
-        return {"summary": "Lỗi YOLO (${res.statusCode})"};
+      final request = http.MultipartRequest('POST', Uri.parse('$_yoloUrl/detect'));
+      request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
+      final response = await http.Response.fromStream(await request.send());
+
+      if (response.statusCode == 200) {
+        return jsonDecode(utf8.decode(response.bodyBytes));
       }
-    } catch (e) { return {"summary": "Lỗi kết nối YOLO: $e"}; }
+      return {"summary": "Loi YOLO (${response.statusCode})"};
+    } catch (error) {
+      return {"summary": "Loi ket noi YOLO: $error"};
+    }
   }
 
   static Future<Map<String, dynamic>> uploadToYOLOLite(Uint8List bytes, String filename) async {
-    if (_yoloUrl.isEmpty) return {"summary": "Chưa có URL YOLO", "boxes": [], "w": 0, "h": 0};
+    if (_yoloUrl.isEmpty) {
+      _useFallbackUrl();
+    }
     try {
-      final req = http.MultipartRequest('POST', Uri.parse('$_yoloUrl/detect-lite'));
-      req.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
-      final res = await http.Response.fromStream(await req.send());
-      
-      if (res.statusCode == 200) {
-        return jsonDecode(utf8.decode(res.bodyBytes));
-      } else {
-        return {"summary": "Lỗi YOLO (${res.statusCode})", "boxes": [], "w": 0, "h": 0};
+      final request = http.MultipartRequest('POST', Uri.parse('$_yoloUrl/detect-lite'));
+      request.files.add(http.MultipartFile.fromBytes('image', bytes, filename: filename));
+      final response = await http.Response.fromStream(await request.send());
+
+      if (response.statusCode == 200) {
+        return jsonDecode(utf8.decode(response.bodyBytes));
       }
-    } catch (e) { return {"summary": "Lỗi kết nối YOLO: $e", "boxes": [], "w": 0, "h": 0}; }
+      return {"summary": "Loi YOLO (${response.statusCode})", "boxes": [], "w": 0, "h": 0};
+    } catch (error) {
+      return {"summary": "Loi ket noi YOLO: $error", "boxes": [], "w": 0, "h": 0};
+    }
   }
 }

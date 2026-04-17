@@ -1,252 +1,250 @@
 # Fishy
 
-Fishy là hệ thống hỗ trợ tra cứu luật giao thông và nhận diện biển báo giao thông trong cùng một ứng dụng. Repository này gồm một app Flutter đa nền tảng, một backend RAG truy xuất và sinh câu trả lời từ dữ liệu luật trên Supabase, một backend YOLO để nhận diện biển báo từ ảnh và camera realtime, cùng bộ script đánh giá chất lượng RAG.
+FISHY là hệ thống hỗ trợ tra cứu luật giao thông và nhận diện biển báo trong cùng một ứng dụng. Repository hiện gồm:
 
-## Tổng quan
-
-Fishy giải quyết ba bài toán chính:
-
-- Tra cứu luật giao thông bằng ngôn ngữ tự nhiên.
-- Nhận diện biển báo giao thông từ ảnh tải lên, ảnh chụp và camera realtime.
-- Quản trị dữ liệu văn bản pháp luật, nội dung chi tiết và embedding phục vụ semantic retrieval.
-
-Hệ thống hướng tới hai nhóm người dùng:
-
-- Người dùng cuối cần hỏi đáp nhanh về lỗi vi phạm, mức phạt, quy định giao thông.
-- Quản trị viên cần cập nhật dữ liệu luật, quản lý nội dung phân cấp và đồng bộ vector tìm kiếm.
-
-## Kiến trúc hệ thống
+- App Flutter đa nền tảng (Android và Web).
+- Backend RAG/FastAPI để hỏi đáp luật giao thông.
+- Backend legal ingest để nạp văn bản pháp luật từ file.
+- Backend YOLO để nhận diện ảnh khi dùng on-device model.
+- Bộ script đánh giá chất lượng RAG.
+![Demo GIF](./assets/ok.gif)
+<p align="center">
+  <img src="./assets/1.jpg" width="24%" />
+  <img src="./assets/2.jpg" width="24%" />
+  <img src="./assets/3.jpg" width="24%" />
+  <img src="./assets/4.jpg" width="24%" />
+</p>
+## Kiến trúc hiện tại
 
 ```text
 Flutter App
-  |- Supabase
-  |   |- Auth
-  |   |- Legal content tables
-  |   |- Chat history
-  |   `- app_config (rag_url, yolo_url)
+  |- Supabase Auth + Database
+  |   |- nguoidung
+  |   |- lich_su_tro_chuyen
+  |   |- vanbanphapluat
+  |   |- noidung
+  |   |- noidung2
+  |   |- nguon_uy_tin
+  |   |- bai_viet_uy_tin
+  |   `- app_config
   |
-  |- RAG API
-  |   |- SentenceTransformer (multilingual-e5-large)
-  |   |- LangChain retriever
-  |   |- OpenAI chat model
-  |   `- Supabase RPC: match_legal_docs_v2
+  |- Trusted RAG API (:8000)
+  |   |- legal retrieval từ Supabase RPC
+  |   |- trusted cache retrieval
+  |   |- Firecrawl fallback
+  |   |- CrossEncoder rerank
+  |   `- OpenAI answer generation
   |
-  `- YOLO API
-      |- Ultralytics YOLO
-      |- Image detection
-      `- Realtime camera detection
+  |- Legal Ingest API (:8010)
+  |   |- extract text từ pdf/docx/txt
+  |   |- parse phân cấp bằng LLM
+  |   |- generate embedding
+  |   `- insert vào noidung2
+  |
+  |- YOLO API (:8001)
+  |   `- detect / detect-lite
+  |
+  `- On-device YOLO Lite
 ```
 
-## Flow vận hành
+## Flow hiện tại
 
-### 1. Khởi động ứng dụng
+### 1. Khởi động app
 
 - `lib/main.dart` load `.env`, khởi tạo Supabase, local notifications và các `Provider`.
-- `lib/Services/ChatService.dart` đọc `rag_url` và `yolo_url` từ bảng `app_config`.
-- Nếu chưa có URL public, app fallback về local:
-  - Android emulator: `10.0.2.2`
-  - Desktop/Web: `127.0.0.1`
+- App gọi:
+  - `ChatService.initializeApiUrl()`
+  - `LegalIngestService.initializeApiUrl()`
+  - `LocalNotiService.init()`
+  - `LocalYoloService.instance.init()`
+- URL backend được đọc từ bảng `app_config` với các key:
+  - `rag_url`
+  - `yolo_url`
+  - `legal_ingest_url`
 
 ### 2. Đăng nhập và phân quyền
 
-- App dùng Supabase Auth cho đăng nhập, đăng ký và đăng xuất.
-- Hồ sơ người dùng được đọc từ bảng `nguoidung`.
-- Người dùng có `mavaitro == 1` sẽ thấy các chức năng quản trị từ menu drawer.
+- App dùng `supabase_flutter` cho đăng nhập, đăng ký, đăng xuất.
+- Sau khi auth thành công, app đọc thêm hồ sơ từ bảng `nguoidung`.
+- Trạng thái tài khoản được kiểm tra qua `matrangthai_tk`.
+- Một số màn quản trị chỉ mở cho user có vai trò phù hợp trong `nguoidung`.
 
 ### 3. Hỏi đáp luật giao thông
 
-- Người dùng nhập câu hỏi tại `ChatScreen`.
-- `ChatViewModel` giữ lại một đoạn lịch sử hội thoại gần nhất để gửi kèm truy vấn.
+- Người dùng gửi câu hỏi ở `ChatScreen`.
+- `ChatViewModel` giữ lại tối đa 5 lượt hội thoại text gần nhất để gửi kèm.
 - App gọi `POST /chat` tới backend RAG.
-- Backend `server/RAG/langchain2.py`:
-  - nhúng câu hỏi bằng `intfloat/multilingual-e5-large`,
-  - trích số km nếu câu hỏi liên quan tốc độ,
-  - gọi RPC `match_legal_docs_v2` trên Supabase,
-  - dựng prompt từ context pháp luật,
-  - sinh câu trả lời bằng `gpt-4o-mini`.
-- Cặp hỏi/đáp sau đó được lưu vào `lich_su_tro_chuyen`.
+- Backend đang dùng thực tế là `server/RAG/trusted_rag_app.py`, không phải flow cũ trong `langchain2.py`.
+- Pipeline hiện tại:
+  - embedding câu hỏi bằng `intfloat/multilingual-e5-large`
+  - truy vấn legal DB qua RPC `match_legal_docs_v3`
+  - nếu legal evidence chưa đủ thì tìm trong trusted cache
+  - nếu trusted cache vẫn chưa đủ thì gọi Firecrawl để tìm và scrape nguồn uy tín
+  - rerank ứng viên bằng `BAAI/bge-reranker-v2-m3`
+  - sinh câu trả lời bằng OpenAI model cấu hình trong `.env`
+- Router hỗ trợ cả:
+  - `POST /api/chat/ask`
+  - `POST /chat`
+- App hiện đang dùng `POST /chat`.
 
-### 4. Nhận diện ảnh biển báo
+### 4. Nhận diện biển báo từ ảnh
 
-- Người dùng có thể chọn ảnh từ gallery hoặc chụp ảnh mới.
-- App gửi ảnh tới `POST /detect-lite`.
-- Backend YOLO trả về:
-  - `summary`,
-  - `boxes`,
-  - `w`, `h` của ảnh gốc.
-- Flutter dùng `BBoxPainter` để vẽ lại bounding boxes trên ảnh.
+- Khi người dùng chọn ảnh gallery hoặc chụp ảnh:
+  - app ưu tiên chạy `LocalYoloService` on-device trên Android
+- Kết quả trả về gồm:
+  - `summary`
+  - `boxes`
+  - `w`, `h`
+- Flutter dùng `BBoxPainter` để vẽ bounding box lên ảnh gốc trong khung chat.
 
 ### 5. Nhận diện realtime
 
 - `RealtimeDetectScreen` mở camera sau và stream frame liên tục.
-- Frame được convert sang JPEG, throttle khoảng 600ms mỗi lần gửi.
-- Nếu phát hiện biển báo:
-  - kết quả được đẩy vào chat,
-  - hiển thị toast trên màn hình,
-  - bắn local notification cảnh báo.
+- Realtime hiện chạy qua `LocalYoloService.detectCameraFrame(...)`.
+- Flow hiện tại là local-first, không phụ thuộc YOLO server cho realtime.
+- Khi phát hiện biển báo:
+  - kết quả được đẩy vào chat
+  - hiện toast trên màn hình
+  - bắn local notification
 
 ### 6. Quản trị dữ liệu luật
 
 - `AddLawScreen` thêm metadata văn bản vào `vanbanphapluat`.
-- `AddLawContentScreen` thêm nội dung vào `noidung` theo cấu trúc:
-  - `CHUONG`
-  - `MUC`
-  - `DIEU`
-  - `KHOAN`
-  - `DIEM`
-- Sau khi thêm nội dung, app có thể:
-  - sinh embedding ngữ cảnh chính bằng `EmbeddingService`,
-  - sinh thêm `rela_embed` nếu có từ khóa liên quan.
-- `LawManageScreen` hỗ trợ lọc, sửa, đổi trạng thái văn bản và đồng bộ embedding hàng loạt.
+- Cùng màn này có nút upload file sang legal ingest API.
+- Legal ingest API:
+  - nhận `pdf`, `docx`, `txt`
+  - extract text
+  - segment theo cấu trúc pháp lý
+  - parse bằng LLM
+  - sinh embedding
+  - insert vào bảng `noidung2`
+- Song song đó, app vẫn còn flow nhập tay cũ:
+  - `AddLawContentScreen`
+  - `AddContentVM`
+  - insert trực tiếp vào bảng `noidung`
+  - sinh embedding từ app qua Hugging Face
 
-## Thành phần chính trong repository
+## Thành phần chính
 
-### Ứng dụng Flutter
+### Flutter app
 
-- `lib/main.dart`: entrypoint ứng dụng.
+- `lib/main.dart`: entrypoint.
 - `lib/Views/`: các màn hình chính.
-- `lib/ViewModels/`: logic state management với `provider`.
-- `lib/Services/`: tích hợp Supabase, chat, embedding, notification.
-- `lib/Models/`: model dữ liệu.
-- `lib/Widgets/`: app bar, typing indicator, painter vẽ bounding box.
+- `lib/ViewModels/`: state management với `provider`.
+- `lib/Services/ChatService.dart`: gọi RAG và YOLO backend, đọc URL động từ `app_config`.
+- `lib/Services/LegalIngestService.dart`: upload file văn bản sang legal ingest API.
+- `lib/Services/LocalYoloService.dart`: YOLO TFLite on-device.
+- `lib/Services/EmbeddingService.dart`: flow cũ để sinh embedding trực tiếp từ app.
 
-### Backend RAG
+### RAG backend
 
-- `server/RAG/langchain2.py`: entrypoint backend RAG hiện đang khớp với app Flutter.
-- `server/RAG/danh_gia_rag.py`: pipeline đánh giá có resume cho retrieval và generation.
-- `server/RAG/evaluate_rag.py`: script đánh giá cũ hơn.
-- `server/RAG/eval.jsonl`, `server/RAG/danh_gia_rag.jsonl`, `server/RAG/eval_set_manifest.md`: bộ dữ liệu đánh giá.
+- `server/RAG/trusted_rag_app.py`: backend RAG đang khớp flow hiện tại.
+- `server/RAG/router/chat_router.py`: expose `/chat` và `/api/chat/ask`.
+- `server/RAG/services/retrieval_service.py`: legal retrieval, trusted cache, Firecrawl fallback, rerank.
+- `server/RAG/services/answer_service.py`: generate final answer và source list.
+- `server/RAG/services/trusted_web_cache_service.py`: quản lý nguồn web uy tín.
+- `server/RAG/services/firecrawl_service.py`: search/scrape nguồn uy tín khi cần fallback.
 
-### Backend YOLO
+### Legal ingest backend
 
-- `server/Yolo/app.py`: entrypoint YOLO hiện đang khớp với app Flutter.
-- `server/Yolo/app2.py`, `server/Yolo/app3.py`: các biến thể thử nghiệm của server YOLO.
-- `server/Yolo/model/`, `best.pt`, `best11s.pt`, `v8h.pt`: trọng số mô hình.
-- `server/Yolo/classes_*.txt`, `class_*.txt`: mapping class và tên biển báo.
+- `server/RAG/legal_ingest_app.py`: app FastAPI cho ingest văn bản.
+- `server/RAG/router/legal_document_router.py`: route upload ingest.
+- `server/RAG/services/noidung2_ingest_service.py`: pipeline insert vào `noidung2`.
 
-### Thành phần bổ sung
+### YOLO backend
 
-- `lib/AdminDashboard/`: một nhánh giao diện quản trị cũ/riêng cho web.
-- `server/run.txt`: lệnh chạy nhanh cho backend.
-- `assets/`: logo và tài nguyên hiển thị.
+- `server/Yolo/app.py`: backend YOLO hiện tại.
+- `server/Yolo/model/best.pt`: model đang được server load mặc định.
+- `server/Yolo/classes_vie.txt`: label tiếng Việt.
 
-## Công nghệ sử dụng
+### Đánh giá RAG
 
-- Flutter
-- Provider
-- Supabase Auth / Database / RPC
-- FastAPI
-- LangChain
-- OpenAI API
-- SentenceTransformers
-- Hugging Face Inference API
-- Ultralytics YOLO
-- RAGAS
-- Ollama
+- `server/RAG/danh_gia_rag.py`: pipeline generate, judge, build report.
+- `server/RAG/danh_gia_rag.jsonl`: bộ câu hỏi đánh giá hiện đang mở trong IDE.
+- `server/RAG/eval_set_manifest.md`: mô tả dataset đánh giá.
+- `server/RAG/danh_gia_rag/`: nơi lưu predictions, scores, summary, biểu đồ.
 
-## Phụ thuộc dữ liệu Supabase
+## Yêu cầu môi trường
 
-Các bảng và RPC đang được dùng trực tiếp trong code:
+### Flutter app
 
-- `nguoidung`
-- `lich_su_tro_chuyen`
-- `vanbanphapluat`
-- `noidung`
-- `coquanbanhanh`
-- `loaivanban`
-- `app_config`
-- `match_legal_docs_v2`
-
-## Cấu hình môi trường
-
-### Root `.env`
-
-Được Flutter load như asset. Nên chỉ chứa biến an toàn phía client.
-
-Tối thiểu theo flow hiện tại:
-
-- `SUPABASE_URL`
-- `SUPABASE_ANON_KEY`
-- `HF_API_KEY` nếu dùng tính năng sinh embedding ngay từ app
-
-Biến có thể tồn tại do quá trình phát triển trước đó:
-
-- `GEMINI_API_KEY`
-
-Khuyến nghị: không để `SUPABASE_SERVICE_ROLE_KEY` trong `.env` của Flutter app.
-
-### `server/RAG/.env`
-
-Bắt buộc theo mã hiện tại:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY`
-
-Biến có thể đang được dùng trong môi trường local hoặc script mở rộng:
-
-- `SUPABASE_ANON_KEY`
-- `OPENROUTER_API_KEY`
-- `HF_API_KEY`
-- `GEMINI_API_KEY`
-
-### `server/Yolo/.env`
-
-Bắt buộc theo mã hiện tại:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-
-Lưu ý: các file `.env` đều đang bị `.gitignore`, nên khi chuyển máy cần tự tạo lại.
+- Flutter SDK tương thích với `sdk: ^3.7.0`
+- Android Studio / Xcode / Windows toolchain tùy nền tảng chạy app
 
 ## Cách chạy local
 
-### 1. Chạy RAG backend
+### 1. Cài dependency Flutter
+
+```bash
+flutter pub get
+```
+
+### 2. Cài dependency Python
+
+RAG:
 
 ```bash
 cd server/RAG
-python -m uvicorn langchain2:app --host 0.0.0.0 --port 8000 --reload
+pip install -r requirements.txt
 ```
 
-### 2. Chạy YOLO backend
+YOLO:
 
 ```bash
 cd server/Yolo
 pip install -r requirements.txt
-python -m uvicorn app:app --host 0.0.0.0 --port 8001 --reload
 ```
 
-### 3. Chạy ứng dụng Flutter
-
-```bash
-flutter pub get
-flutter run
-```
-
-## Đánh giá chất lượng RAG
-
-Chạy từng bước:
+### 3. Chạy Trusted RAG API
 
 ```bash
 cd server/RAG
+uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### 4. Chạy Legal Ingest API
+
+```bash
+cd server/RAG
+uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
+```
+
+### 5. Chạy YOLO API
+
+```bash
+cd server/Yolo
+uvicorn app:app --host 0.0.0.0 --port 8001 --reload
+```
+
+### 6. Chạy Flutter app
+
+```bash
+flutter run
+```
+
+## Chạy đánh giá RAG
+
+Từ `server/RAG`:
+
+```bash
 python danh_gia_rag.py --mode generate_only --eval-file danh_gia_rag.jsonl
 python danh_gia_rag.py --mode judge_only
 python danh_gia_rag.py --mode build_report
 ```
 
-Hoặc chạy trọn pipeline:
+Hoặc chạy full:
 
 ```bash
-cd server/RAG
 python danh_gia_rag.py --mode full --eval-file danh_gia_rag.jsonl
 ```
 
-Lưu ý:
+Trong repo cũng đã có `server/run.txt` ghi lại một số lệnh chạy nhanh và preset threshold.
 
-- `langchain2.py` dùng OpenAI cho trả lời chính.
-- `danh_gia_rag.py` dùng Ollama/Qwen cho phase generate và RAGAS/OpenAI cho phase judge.
-- Vì vậy Ollama không phải là phụ thuộc bắt buộc để chạy ứng dụng, nhưng là phụ thuộc của pipeline đánh giá hiện tại.
+## Tóm tắt ngắn
 
-## Tóm tắt
+Fishy hiện là codebase lai giữa:
 
-Fishy là codebase kết hợp legal RAG và computer vision cho bài toán giao thông. Người dùng có thể hỏi luật, xem lịch sử trao đổi, tải ảnh hoặc dùng camera để nhận diện biển báo; quản trị viên có thể quản lý dữ liệu luật, cập nhật nội dung và đồng bộ embedding trong cùng một hệ thống.
+- app Flutter cho người dùng cuối và quản trị viên,
+- trusted legal RAG có fallback ra nguồn web uy tín,
+- legal ingest backend để nạp văn bản vào `noidung2`,
+- YOLO local-first cho mobile và server fallback cho các nền tảng còn lại.

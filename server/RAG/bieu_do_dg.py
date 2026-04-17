@@ -46,15 +46,48 @@ SUMMARY_METRICS: List[Tuple[str, str]] = [
 ]
 
 
-RUN_CONFIG: Dict[str, str] = {
-    # Sua cac gia tri nay roi chay: python server/RAG/bieu_do_dg.py
-    "jsonl": "server/RAG/danh_gia_rag/danh_gia_060/rag_predictions_langchain2_t060_k5.jsonl",
-    "csv": "server/RAG/danh_gia_rag/danh_gia_060/rag_evaluation_report_langchain2_t060_k5.csv",
-    "out_dir": "server/RAG/danh_gia_rag/danh_gia_060/bieu_do_png",
-    "base_name": "threshold_060_k5",
-    "image_format": "png",
-    "title": "Danh gia threshold 0.60 k=5",
-}
+RUN_CONFIGS: List[Dict[str, str]] = [
+    {
+        "jsonl": "server/RAG/danh_gia_rag/danh_gia_045/rag_predictions_ollama_qwen25_7b_t045_k5.jsonl",
+        "csv": "server/RAG/danh_gia_rag/danh_gia_045/rag_evaluation_report_ollama_qwen25_7b_t045_k5.csv",
+        "title": "Danh gia threshold 0.45 k=5",
+        "base_name": "threshold_045_k5",
+        "out_dir": "server/RAG/danh_gia_rag/danh_gia_045/bieu_do_png",
+        "image_format": "png",
+    },
+    {
+        "jsonl": "server/RAG/danh_gia_rag/danh_gia_050/rag_predictions_ollama_qwen25_7b_t050_k5.jsonl",
+        "csv": "server/RAG/danh_gia_rag/danh_gia_050/rag_evaluation_report_ollama_qwen25_7b_t050_k5.csv",
+        "title": "Danh gia threshold 0.50 k=5",
+        "base_name": "threshold_050_k5",
+        "out_dir": "server/RAG/danh_gia_rag/danh_gia_050/bieu_do_png",
+        "image_format": "png",
+    },
+    {
+        "jsonl": "server/RAG/danh_gia_rag/danh_gia_055/rag_predictions_ollama_qwen25_7b_t055_k5.jsonl",
+        "csv": "server/RAG/danh_gia_rag/danh_gia_055/rag_evaluation_report_ollama_qwen25_7b_t055_k5.csv",
+        "title": "Danh gia threshold 0.55 k=5",
+        "base_name": "threshold_055_k5",
+        "out_dir": "server/RAG/danh_gia_rag/danh_gia_055/bieu_do_png",
+        "image_format": "png",
+    },
+    {
+        "jsonl": "server/RAG/danh_gia_rag/danh_gia_060/rag_predictions_ollama_qwen25_7b_t060_k5.jsonl",
+        "csv": "server/RAG/danh_gia_rag/danh_gia_060/rag_evaluation_report_ollama_qwen25_7b_t060_k5.csv",
+        "title": "Danh gia threshold 0.60 k=5",
+        "base_name": "threshold_060_k5",
+        "out_dir": "server/RAG/danh_gia_rag/danh_gia_060/bieu_do_png",
+        "image_format": "png",
+    },
+    {
+        "jsonl": "server/RAG/danh_gia_rag/danh_gia_065/rag_predictions_ollama_qwen25_7b_t065_k5.jsonl",
+        "csv": "",
+        "title": "Danh gia threshold 0.65 k=5",
+        "base_name": "threshold_065_k5",
+        "out_dir": "server/RAG/danh_gia_rag/danh_gia_065/bieu_do_png",
+        "image_format": "png",
+    },
+]
 
 
 def resolve_input_path(value: str) -> Optional[Path]:
@@ -804,18 +837,18 @@ def write_detail_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def main() -> None:
-    jsonl_value = RUN_CONFIG.get("jsonl", "").strip()
-    csv_value = RUN_CONFIG.get("csv", "").strip()
-    out_dir_value = RUN_CONFIG.get("out_dir", "").strip()
-    base_name = RUN_CONFIG.get("base_name", "").strip()
-    image_ext = RUN_CONFIG.get("image_format", "png").strip().lower() or "png"
-    title_prefix = RUN_CONFIG.get("title", "").strip()
+def process_run_config(run_config: Dict[str, str]) -> None:
+    jsonl_value = run_config.get("jsonl", "").strip()
+    csv_value = run_config.get("csv", "").strip()
+    out_dir_value = run_config.get("out_dir", "").strip()
+    base_name = run_config.get("base_name", "").strip()
+    image_ext = run_config.get("image_format", "png").strip().lower() or "png"
+    title_prefix = run_config.get("title", "").strip()
 
     jsonl_path = resolve_input_path(jsonl_value) if jsonl_value else None
     csv_path = resolve_input_path(csv_value) if csv_value else None
     if not out_dir_value:
-        raise ValueError("RUN_CONFIG['out_dir'] dang rong. Hay dat thu muc output trong file.")
+        raise ValueError("run_config['out_dir'] dang rong. Hay dat thu muc output trong file.")
 
     out_dir = resolve_output_path(out_dir_value)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -919,6 +952,18 @@ def main() -> None:
     print(f"Da ghi bieu do: {rank_image_path}")
     print(f"Da ghi bieu do: {retrieval_trend_image_path}")
     print(f"Da ghi bieu do: {quality_trend_image_path}")
+
+
+def main() -> None:
+    if not RUN_CONFIGS:
+        raise ValueError("RUN_CONFIGS dang rong. Hay them it nhat 1 cau hinh.")
+
+    total_runs = len(RUN_CONFIGS)
+    for idx, run_config in enumerate(RUN_CONFIGS, start=1):
+        run_name = run_config.get("title", "").strip() or run_config.get("base_name", "").strip() or f"run_{idx}"
+        print("=" * 80)
+        print(f"Dang xu ly cau hinh {idx}/{total_runs}: {run_name}")
+        process_run_config(run_config)
 
 
 if __name__ == "__main__":

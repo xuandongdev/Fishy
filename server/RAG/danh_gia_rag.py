@@ -7,6 +7,9 @@ import json
 import os
 import re
 import sys
+import time
+import urllib.error
+import urllib.request
 from typing import Any, Dict, List, Optional
 
 
@@ -26,12 +29,17 @@ if hasattr(sys.stderr, "reconfigure"):
 SUPABASE_URL: Optional[str] = None
 SUPABASE_KEY: Optional[str] = None
 OPENAI_API_KEY: Optional[str] = None
-GENERATOR_MODEL = "gpt-4o-mini"
-GENERATOR_TEMPERATURE = 0.2
-MATCH_THRESHOLD = 0.60
+OLLAMA_MODEL = "qwen2.5:7b"
+GENERATOR_TEMPERATURE = 0.0
+
+MATCH_THRESHOLD = 0.65
 MATCH_COUNT = 5
+OUTPUT_DIR = "danh_gia_rag/danh_gia_065"
+
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
+JUDGE_MAX_TOKENS = 4096
 HF_EMBED_MODEL = "intfloat/multilingual-e5-large"
+TRUSTED_RAG_EVAL_URL: Optional[str] = None
 
 Dataset = None
 evaluate = None
@@ -47,16 +55,22 @@ ragas_emb = None
 _RUNTIME_INITIALIZED = False
 
 
+VEHICLE_TYPES = {"o_to", "xe_may", "xe_dap", "di_bo", "khac"}
+
+
 def initialize_runtime() -> None:
     global SUPABASE_URL
     global SUPABASE_KEY
     global OPENAI_API_KEY
-    global GENERATOR_MODEL
+    global OLLAMA_MODEL
     global GENERATOR_TEMPERATURE
     global MATCH_THRESHOLD
     global MATCH_COUNT
+    global OUTPUT_DIR
     global OPENAI_JUDGE_MODEL
+    global JUDGE_MAX_TOKENS
     global HF_EMBED_MODEL
+    global TRUSTED_RAG_EVAL_URL
     global Dataset
     global evaluate
     global RunConfig
@@ -90,9 +104,9 @@ def initialize_runtime() -> None:
     from langchain_core.documents import Document
     from langchain_core.prompts import ChatPromptTemplate
     from langchain_core.output_parsers import StrOutputParser
+    from langchain_ollama import ChatOllama
     from langchain_openai import ChatOpenAI
-    from openai import OpenAI
-    from ragas.llms import llm_factory
+    from ragas.llms import LangchainLLMWrapper
     from ragas.embeddings.base import BaseRagasEmbeddings
 
     load_dotenv()
@@ -100,18 +114,17 @@ def initialize_runtime() -> None:
     SUPABASE_URL = os.getenv("SUPABASE_URL")
     SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    GENERATOR_MODEL = os.getenv("GENERATOR_MODEL", "gpt-4o-mini")
-    GENERATOR_TEMPERATURE = float(os.getenv("GENERATOR_TEMPERATURE", "0.2"))
-    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.60"))
-    MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
+    OLLAMA_MODEL = "qwen2.5:7b"
+    GENERATOR_TEMPERATURE = 0.0
     OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-4o-mini")
     HF_EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "intfloat/multilingual-e5-large")
+    TRUSTED_RAG_EVAL_URL = os.getenv("TRUSTED_RAG_EVAL_URL", "").strip() or None
 
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise ValueError("Thieu SUPABASE_URL hoac SUPABASE_SERVICE_ROLE_KEY trong file .env")
 
     if not OPENAI_API_KEY:
-        print("CANH BAO: Chua tim thay OPENAI_API_KEY trong .env. Cac buoc generate/judge co the khong chay duoc.")
+        print("CANH BAO: Chua tim thay OPENAI_API_KEY trong .env. Buoc judge co the khong chay duoc, nhung generate bang Ollama van co the chay.")
 
     print("\nDang khoi tao Supabase va model embedding E5...")
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -150,10 +163,30 @@ def initialize_runtime() -> None:
         match_threshold: float = MATCH_THRESHOLD
         match_count: int = MATCH_COUNT
 
+        def detect_vehicle_type(self, query: str) -> str:
+            q = (query or "").strip().lower()
+
+            if re.search(
+                r"\b(ô tô|oto|o to|xe hơi|xe hoi|xe con|xe tải|xe tai|xe khách|xe khach|xe bán tải|xe ban tai|đầu kéo|dau keo|container|rơ moóc|ro mooc|sơ mi rơ moóc|so mi ro mooc)\b",
+                q,
+            ):
+                return "o_to"
+
+            if re.search(r"\b(xe máy|xe may|mô tô|mo to|moto|motor|xe gắn máy|xe gan may)\b", q):
+                return "xe_may"
+
+            if re.search(r"\b(xe đạp|xe dap|xe đạp điện|xe dap dien|xe thô sơ|xe tho so)\b", q):
+                return "xe_dap"
+
+            if re.search(r"\b(đi bộ|di bo|người đi bộ|nguoi di bo|bộ hành|bo hanh)\b", q):
+                return "di_bo"
+
+            return "khac"
+
         def extract_km(self, query: str) -> Optional[float]:
             pattern = (
-                r"(\d+(?:[\.,]\d+)?)\s*(?:km/h|km|kmh|cay so|cay|cay so)"
-                r"|(?:qua|lo|chay|muc|toc do)\s*(\d+(?:[\.,]\d+)?)"
+                r"(\d+(?:[\.,]\d+)?)\s*(?:km/h|km|kmh|cây số|cay so|cây|cay)"
+                r"|(?:quá|qua|lố|lo|chạy|chay|mức|muc|tốc độ|toc do)\s*(\d+(?:[\.,]\d+)?)"
             )
             match = re.search(pattern, query, re.IGNORECASE)
             if not match:
@@ -174,9 +207,10 @@ def initialize_runtime() -> None:
                 normalize_embeddings=True,
             ).tolist()
             query_km = self.extract_km(query)
+            vehicle_type = self.detect_vehicle_type(query)
 
             rpc_res = supabase.rpc(
-                "match_legal_docs_v2",
+                "match_legal_docs_v3",
                 {
                     "vector_truy_van": query_vector,
                     "van_ban_truy_van": query,
@@ -195,31 +229,40 @@ def initialize_runtime() -> None:
                             "sothutund": hit.get("sothutund"),
                             "sohieu": hit.get("sohieu"),
                             "path": hit.get("duong_dan_phan_cap"),
+                            "vehicle_type": vehicle_type if vehicle_type in VEHICLE_TYPES else None,
                         },
                     )
                 )
             return docs
 
-    openai_client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
-    generator_llm = (
-        ChatOpenAI(
-            model=GENERATOR_MODEL,
-            temperature=GENERATOR_TEMPERATURE,
-            api_key=OPENAI_API_KEY,
-        )
-        if OPENAI_API_KEY
-        else None
+    generator_llm = ChatOllama(
+        model=OLLAMA_MODEL,
+        temperature=GENERATOR_TEMPERATURE,
     )
     generator_prompt = ChatPromptTemplate.from_messages(
         [
             (
                 "system",
                 "Ban la Tro ly Luat Giao thong Fishy. Hay tra loi dua tren du lieu phap luat duoc cung cap.\n"
-                "Khi co so lieu cu the nhu toc do, hay doi chieu chinh xac muc phat.\n\n"
+                "Neu cau hoi co nhac ro loai phuong tien (o to, xe may, xe dap, di bo), hay uu tien doi chieu dung nhom do.\n"
+                "Chi duoc ket luan nhung gi co trong can cu. Khong duoc tu bo sung muc phat, dieu khoan, ngoai le, hay suy dien tu can cu gan dung.\n"
+                "Neu can cu chua du khop truc tiep voi cau hoi, phai tra loi ro la chua du can cu retrieve duoc de ket luan chac chan.\n"
+                "Tra loi ngan, sat can cu, uu tien neu dung ten hanh vi va can cu.\n\n"
                 "DU LIEU LUAT:\n{context}",
             ),
             ("human", "{question}"),
         ]
+    )
+
+    judge_base_llm = (
+        ChatOpenAI(
+            model=OPENAI_JUDGE_MODEL,
+            api_key=OPENAI_API_KEY,
+            temperature=0,
+            max_tokens=JUDGE_MAX_TOKENS,
+        )
+        if OPENAI_API_KEY
+        else None
     )
 
     Dataset = _Dataset
@@ -231,7 +274,7 @@ def initialize_runtime() -> None:
     RelevancyMetric = _RelevancyMetric
     retriever = LegalSupabaseRetriever()
     generator_chain = (generator_prompt | generator_llm | StrOutputParser()) if generator_llm else None
-    ragas_llm = llm_factory(OPENAI_JUDGE_MODEL, client=openai_client) if openai_client else None
+    ragas_llm = LangchainLLMWrapper(judge_base_llm) if judge_base_llm else None
     ragas_emb = E5RagasEmbeddings(embedding_model)
     _RUNTIME_INITIALIZED = True
 
@@ -258,6 +301,31 @@ def load_jsonl(path: str) -> List[Dict[str, Any]]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"JSONL khong hop le o {path}, dong {line_no}: {exc.msg}") from exc
     return items
+
+
+def dedupe_latest_by_sample_key(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    latest: Dict[str, Dict[str, Any]] = {}
+    passthrough: List[Dict[str, Any]] = []
+    for item in items:
+        key = str(item.get("sample_key") or "").strip()
+        if not key:
+            passthrough.append(item)
+            continue
+        latest[key] = item
+    return passthrough + list(latest.values())
+
+
+def load_completed_keys(path: str, error_field: Optional[str] = None, retry_errors: bool = False) -> set[str]:
+    items = dedupe_latest_by_sample_key(load_jsonl(path))
+    done_keys: set[str] = set()
+    for item in items:
+        key = str(item.get("sample_key") or "").strip()
+        if not key:
+            continue
+        if retry_errors and error_field and item.get(error_field):
+            continue
+        done_keys.add(key)
+    return done_keys
 
 
 def ensure_parent_dir(path: str) -> None:
@@ -363,17 +431,72 @@ def build_single_sample_dataset(item: Dict[str, Any]):
     return Dataset.from_dict(data)
 
 
+def call_trusted_rag_eval(question: str) -> Dict[str, Any]:
+    initialize_runtime()
+    if not TRUSTED_RAG_EVAL_URL:
+        raise ValueError("Chua cau hinh TRUSTED_RAG_EVAL_URL de goi trusted_rag_app.")
+
+    payload = json.dumps({"question": question}, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request(
+        TRUSTED_RAG_EVAL_URL,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            body = response.read().decode("utf-8")
+            return json.loads(body)
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"trusted_rag_app tra ve HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Khong ket noi duoc trusted_rag_app: {exc.reason}") from exc
+
+
+def extract_eval_fields_from_api(response: Dict[str, Any]) -> Dict[str, Any]:
+    evaluation = (response or {}).get("evaluation") or {}
+    hits = evaluation.get("hits") or []
+    retrieved_ids = [item.get("primary_id") for item in hits if item.get("primary_id") is not None]
+    contexts = [(item.get("content") or "") for item in hits if item.get("content")]
+    retrieved_paths = [
+        item.get("label") or item.get("url")
+        for item in hits
+        if item.get("label") or item.get("url")
+    ]
+    timings = evaluation.get("timings") or {}
+    return {
+        "answer": (response or {}).get("answer", ""),
+        "retrieved_ids": retrieved_ids,
+        "contexts": contexts,
+        "retrieved_paths": retrieved_paths,
+        "detected_vehicle_type": evaluation.get("detected_vehicle_type"),
+        "latency_ms": safe_float(timings.get("latency_ms")),
+        "retrieval_time_ms": safe_float(timings.get("retrieval_time_ms")),
+        "rerank_time_ms": safe_float(timings.get("rerank_time_ms")),
+        "gen_time_ms": safe_float(timings.get("gen_time_ms")),
+    }
+
+
 def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = None) -> None:
     initialize_runtime()
-    if not generator_chain:
-        raise ValueError("Thieu OPENAI_API_KEY hoac chua khoi tao duoc generator theo pipeline langchain2.")
+    use_trusted_rag_api = bool(TRUSTED_RAG_EVAL_URL)
+    if not use_trusted_rag_api and not generator_chain:
+        raise ValueError("Chua khoi tao duoc generator Ollama. Hay chay `ollama run qwen2.5:7b` truoc khi goi danh_gia_rag.py.")
 
     eval_items = load_jsonl(eval_file)
     if not eval_items:
         raise FileNotFoundError(f"Khong doc duoc du lieu tu {eval_file}")
 
-    done_items = load_jsonl(predictions_file)
-    done_keys = {str(x.get("sample_key")) for x in done_items if x.get("sample_key")}
+    done_keys = load_completed_keys(
+        predictions_file,
+        error_field="generate_error",
+        retry_errors=os.getenv("RETRY_GENERATE_ERRORS", "0") == "1",
+    )
 
     total = len(eval_items) if limit is None else min(len(eval_items), limit)
     print(f"\nBAT DAU GENERATE: {total} cau hoi")
@@ -393,19 +516,62 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
         print(f"[{idx}/{total}] Dang xu ly: {question}")
 
         try:
-            docs = retriever.invoke(question)
-            contexts = [doc.page_content for doc in docs]
-            retrieved_ids = [
-                doc.metadata.get("sothutund")
-                for doc in docs
-                if isinstance(doc.metadata, dict) and doc.metadata.get("sothutund") is not None
-            ]
-            answer_text = generator_chain.invoke(
-                {
-                    "context": format_docs(docs),
-                    "question": question,
-                }
-            )
+            if use_trusted_rag_api:
+                api_start = time.perf_counter()
+                api_result = call_trusted_rag_eval(question)
+                api_end = time.perf_counter()
+
+                eval_result = extract_eval_fields_from_api(api_result)
+                contexts = eval_result["contexts"]
+                retrieved_ids = eval_result["retrieved_ids"]
+                answer_text = eval_result["answer"]
+                retrieved_paths = eval_result["retrieved_paths"]
+                detected_vehicle_type = eval_result.get("detected_vehicle_type")
+
+                latency_ms = eval_result.get("latency_ms")
+                if latency_ms is None:
+                    latency_ms = (api_end - api_start) * 1000
+                retrieval_time_ms = eval_result.get("retrieval_time_ms")
+                rerank_time_ms = eval_result.get("rerank_time_ms")
+                gen_time_ms = eval_result.get("gen_time_ms")
+            else:
+                total_start = time.perf_counter()
+                detected_vehicle_type = retriever.detect_vehicle_type(question)
+
+                retrieval_start = time.perf_counter()
+                docs = retriever.invoke(question)
+                retrieval_end = time.perf_counter()
+
+                rerank_start = retrieval_end
+                rerank_end = rerank_start
+
+                generation_start = time.perf_counter()
+                answer_text = generator_chain.invoke(
+                    {
+                        "context": format_docs(docs),
+                        "question": question,
+                    }
+                )
+                generation_end = time.perf_counter()
+
+                total_end = generation_end
+
+                contexts = [doc.page_content for doc in docs]
+                retrieved_ids = [
+                    doc.metadata.get("sothutund")
+                    for doc in docs
+                    if isinstance(doc.metadata, dict) and doc.metadata.get("sothutund") is not None
+                ]
+                retrieved_paths = [
+                    doc.metadata.get("path")
+                    for doc in docs
+                    if isinstance(doc.metadata, dict)
+                ]
+
+                retrieval_time_ms = (retrieval_end - retrieval_start) * 1000
+                rerank_time_ms = (rerank_end - rerank_start) * 1000
+                gen_time_ms = (generation_end - generation_start) * 1000
+                latency_ms = (total_end - total_start) * 1000
 
             retrieval_metrics = compute_retrieval_metrics(gold_ids, retrieved_ids)
             out = {
@@ -414,14 +580,17 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
                 "question": question,
                 "gold_ids": gold_ids,
                 "ground_truth": ground_truth,
+                "threshold": MATCH_THRESHOLD,
+                "k": MATCH_COUNT,
+                "detected_vehicle_type": detected_vehicle_type,
                 "retrieved_ids": retrieved_ids,
                 "contexts": contexts,
-                "retrieved_paths": [
-                    doc.metadata.get("path")
-                    for doc in docs
-                    if isinstance(doc.metadata, dict)
-                ],
+                "retrieved_paths": retrieved_paths,
                 "answer": answer_text,
+                "latency_ms": latency_ms,
+                "retrieval_time_ms": retrieval_time_ms,
+                "rerank_time_ms": rerank_time_ms,
+                "gen_time_ms": gen_time_ms,
                 **retrieval_metrics,
             }
             append_jsonl(predictions_file, out)
@@ -434,9 +603,16 @@ def generate_only(eval_file: str, predictions_file: str, limit: Optional[int] = 
                 "question": question,
                 "gold_ids": gold_ids,
                 "ground_truth": ground_truth,
+                "threshold": MATCH_THRESHOLD,
+                "k": MATCH_COUNT,
+                "detected_vehicle_type": None,
                 "retrieved_ids": [],
                 "contexts": [],
                 "answer": f"Loi he thong khi generate: {exc}",
+                "latency_ms": None,
+                "retrieval_time_ms": None,
+                "rerank_time_ms": None,
+                "gen_time_ms": None,
                 "first_relevant_rank": None,
                 "hit_at_k": 0,
                 "recall_at_k": 0.0 if gold_ids else None,
@@ -459,8 +635,11 @@ def judge_only(predictions_file: str, scores_file: str, limit: Optional[int] = N
     if not pred_items:
         raise FileNotFoundError(f"Khong co predictions de cham trong {predictions_file}")
 
-    scored_items = load_jsonl(scores_file)
-    scored_keys = {str(x.get("sample_key")) for x in scored_items if x.get("sample_key")}
+    scored_keys = load_completed_keys(
+        scores_file,
+        error_field="judge_error",
+        retry_errors=os.getenv("RETRY_JUDGE_ERRORS", "0") == "1",
+    )
 
     pending = [x for x in pred_items if str(x.get("sample_key")) not in scored_keys]
     if limit is not None:
@@ -474,7 +653,7 @@ def judge_only(predictions_file: str, scores_file: str, limit: Optional[int] = N
         Faithfulness(llm=ragas_llm),
         RelevancyMetric(llm=ragas_llm, embeddings=ragas_emb),
     ]
-    safe_config = RunConfig(max_workers=2, max_retries=5)
+    safe_config = RunConfig(max_workers=2, max_retries=2)
 
     for idx, item in enumerate(pending, start=1):
         print(f"[{idx}/{len(pending)}] Cham: {item.get('question', '')}")
@@ -518,13 +697,17 @@ def judge_only(predictions_file: str, scores_file: str, limit: Optional[int] = N
 
 
 def build_report(scores_file: str, report_csv: str, summary_json: str) -> None:
-    score_items = load_jsonl(scores_file)
+    score_items = dedupe_latest_by_sample_key(load_jsonl(scores_file))
     if not score_items:
         raise FileNotFoundError(f"Khong co du lieu cham trong {scores_file}")
 
     write_report_csv(report_csv, score_items)
 
     numeric_cols = [
+        "latency_ms",
+        "retrieval_time_ms",
+        "rerank_time_ms",
+        "gen_time_ms",
         "context_precision",
         "context_recall",
         "faithfulness",
@@ -556,19 +739,12 @@ def build_report(scores_file: str, report_csv: str, summary_json: str) -> None:
 def main() -> None:
     global MATCH_THRESHOLD
     global MATCH_COUNT
+    global OUTPUT_DIR
 
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except Exception:
-        pass
-
-    MATCH_THRESHOLD = float(os.getenv("MATCH_THRESHOLD", "0.60"))
-    MATCH_COUNT = int(os.getenv("MATCH_COUNT", "5"))
     threshold_tag = f"{MATCH_THRESHOLD:.2f}".replace(".", "")
-    default_run_tag = f"langchain2_t{threshold_tag}_k{MATCH_COUNT}"
+    default_run_tag = f"ollama_qwen25_7b_t{threshold_tag}_k{MATCH_COUNT}"
 
-    parser = argparse.ArgumentParser(description="Danh gia RAG theo pipeline langchain2, co ho tro resume")
+    parser = argparse.ArgumentParser(description="Danh gia RAG theo pipeline local/trusted_rag_app, co ho tro resume")
     parser.add_argument("--mode", choices=["generate_only", "judge_only", "build_report", "full"], default="full")
     parser.add_argument("--eval-file", default="danh_gia_rag.jsonl")
     parser.add_argument("--run-tag", default=default_run_tag)
@@ -577,16 +753,23 @@ def main() -> None:
     parser.add_argument("--report-csv", default=None)
     parser.add_argument("--summary-json", default=None)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--retry-generate-errors", action="store_true")
+    parser.add_argument("--retry-judge-errors", action="store_true")
     args = parser.parse_args()
 
+    if args.retry_generate_errors:
+        os.environ["RETRY_GENERATE_ERRORS"] = "1"
+    if args.retry_judge_errors:
+        os.environ["RETRY_JUDGE_ERRORS"] = "1"
+
     if not args.predictions_file:
-        args.predictions_file = f"danh_gia_rag/danh_gia_050/rag_predictions_{args.run_tag}.jsonl"
+        args.predictions_file = f"{OUTPUT_DIR}/rag_predictions_{args.run_tag}.jsonl"
     if not args.scores_file:
-        args.scores_file = f"danh_gia_rag/danh_gia_050/rag_scores_{args.run_tag}.jsonl"
+        args.scores_file = f"{OUTPUT_DIR}/rag_scores_{args.run_tag}.jsonl"
     if not args.report_csv:
-        args.report_csv = f"danh_gia_rag/danh_gia_050/rag_evaluation_report_{args.run_tag}.csv"
+        args.report_csv = f"{OUTPUT_DIR}/rag_evaluation_report_{args.run_tag}.csv"
     if not args.summary_json:
-        args.summary_json = f"danh_gia_rag/danh_gia_050/rag_evaluation_summary_{args.run_tag}.json"
+        args.summary_json = f"{OUTPUT_DIR}/rag_evaluation_summary_{args.run_tag}.json"
 
     if args.mode == "generate_only":
         generate_only(args.eval_file, args.predictions_file, args.limit)

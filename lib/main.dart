@@ -33,7 +33,9 @@ import 'Themes/ThemeData.dart';
 
 // QUAN TRỌNG: Import Service để lấy link Dynamic
 import 'package:fishy/Services/ChatService.dart';
+import 'package:fishy/Services/LegalIngestService.dart';
 import 'package:fishy/Services/LocalNotiService.dart';
+import 'package:fishy/Services/LocalYoloService.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -51,7 +53,9 @@ void main() async {
   // 3. KHỞI TẠO URL API (Lấy link Ngrok từ Supabase)
   // Bước này đảm bảo ChatService có link đúng trước khi vào màn hình Chat
   await ChatService.initializeApiUrl();
+  await LegalIngestService.initializeApiUrl();
   await LocalNotiService.init();
+  await LocalYoloService.instance.init();
 
   runApp(
     MultiProvider(

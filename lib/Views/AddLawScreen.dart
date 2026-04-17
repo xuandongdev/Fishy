@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
 import '../Models/AddLawModel.dart';
+import '../Services/LegalIngestService.dart';
 import '../ViewModels/AddLawVM.dart';
 
 class AddLawScreen extends StatefulWidget {
@@ -15,11 +17,12 @@ class _AddLawScreenState extends State<AddLawScreen> {
   final TextEditingController tenVanBanController = TextEditingController();
   final TextEditingController ngayKyController = TextEditingController();
   final TextEditingController ngayHieuLucController = TextEditingController();
+  final LegalIngestService _legalIngestService = LegalIngestService();
 
   DateTime? _ngayKy;
   DateTime? _ngayHieuLuc;
-
   bool isLoading = false;
+  bool isUploadingLegalFile = false;
 
   @override
   void dispose() {
@@ -56,134 +59,165 @@ class _AddLawScreenState extends State<AddLawScreen> {
     final addLawVM = Provider.of<AddLawVM>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Thêm Văn bản mới')),
+      appBar: AppBar(
+        title: const Text('Them van ban moi'),
+      ),
+      floatingActionButton: FloatingActionButton(
+        tooltip: 'Tai file vao legal_ingest',
+        onPressed: isUploadingLegalFile ? null : _handleLegalFileUpload,
+        backgroundColor: const Color(0xFF27408B),
+        child: isUploadingLegalFile
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              )
+            : Padding(
+                padding: const EdgeInsets.all(10),
+                child: Image.asset(
+                  'assets/add_docs.png',
+                  fit: BoxFit.contain,
+                ),
+              ),
+      ),
       body: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildTextField(sohieuController, 'Số hiệu văn bản'),
-              _buildTextField(tenVanBanController, 'Tên văn bản'),
-
+              _buildTextField(sohieuController, 'So hieu van ban'),
+              _buildTextField(tenVanBanController, 'Ten van ban'),
               ListTile(
                 title: Text(
                   _ngayKy == null
-                      ? "Chọn ngày ký"
-                      : "Ngày ký: ${_ngayKy!.toLocal().toString().split(' ').first}",
+                      ? 'Chon ngay ky'
+                      : 'Ngay ky: ${_ngayKy!.toLocal().toString().split(' ').first}',
                 ),
                 trailing: const Icon(Icons.calendar_today),
                 onTap: () => _pickDate(context, true),
               ),
-
               ListTile(
                 title: Text(
                   _ngayHieuLuc == null
-                      ? "Chọn ngày có hiệu lực"
-                      : "Ngày hiệu lực: ${_ngayHieuLuc!.toLocal().toString().split(' ').first}",
+                      ? 'Chon ngay co hieu luc'
+                      : 'Ngay hieu luc: ${_ngayHieuLuc!.toLocal().toString().split(' ').first}',
                 ),
                 trailing: const Icon(Icons.calendar_today),
                 onTap: () => _pickDate(context, false),
               ),
-
               const SizedBox(height: 10),
-              const SizedBox(height: 10),
-              const Text('Chọn trạng thái', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Chon trang thai', style: TextStyle(fontWeight: FontWeight.bold)),
               DropdownButton<String>(
                 value: addLawVM.selectedTrangThai,
-                items: addLawVM.trangThaiOptions.map((s) {
-                  return DropdownMenuItem<String>(
-                    value: s,
-                    child: Text(s),
-                  );
-                }).toList(),
+                items: addLawVM.trangThaiOptions
+                    .map(
+                      (s) => DropdownMenuItem<String>(
+                        value: s,
+                        child: Text(s),
+                      ),
+                    )
+                    .toList(),
                 onChanged: addLawVM.setSelectedTrangThai,
                 isExpanded: true,
               ),
-
               const SizedBox(height: 10),
-              const Text('Cơ quan ban hành', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Co quan ban hanh', style: TextStyle(fontWeight: FontWeight.bold)),
               DropdownButton<int>(
                 value: addLawVM.selectedCoQuan,
                 items: addLawVM.coQuanList.isNotEmpty
-                    ? addLawVM.coQuanList.map((coQuan) {
-                  return DropdownMenuItem<int>(
-                    value: coQuan['macoquan'],
-                    child: Text((coQuan['tencoquan'] ?? '').toString()),
-                  );
-                }).toList()
+                    ? addLawVM.coQuanList
+                        .map(
+                          (coQuan) => DropdownMenuItem<int>(
+                            value: coQuan['macoquan'],
+                            child: Text((coQuan['tencoquan'] ?? '').toString()),
+                          ),
+                        )
+                        .toList()
                     : [],
                 onChanged: addLawVM.setSelectedCoQuan,
                 isExpanded: true,
-                hint: const Text('Chọn cơ quan'),
+                hint: const Text('Chon co quan'),
               ),
-
               const SizedBox(height: 10),
-              const Text('Loại văn bản', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text('Loai van ban', style: TextStyle(fontWeight: FontWeight.bold)),
               DropdownButton<int>(
                 value: addLawVM.selectedLoaiVanBan,
                 items: addLawVM.loaiVanBanList.isNotEmpty
-                    ? addLawVM.loaiVanBanList.map((loai) {
-                  return DropdownMenuItem<int>(
-                    value: loai['maloai'],
-                    child: Text((loai['tenloai'] ?? '').toString()),
-                  );
-                }).toList()
+                    ? addLawVM.loaiVanBanList
+                        .map(
+                          (loai) => DropdownMenuItem<int>(
+                            value: loai['maloai'],
+                            child: Text((loai['tenloai'] ?? '').toString()),
+                          ),
+                        )
+                        .toList()
                     : [],
                 onChanged: addLawVM.setSelectedLoaiVanBan,
                 isExpanded: true,
-                hint: const Text('Chọn loại văn bản'),
+                hint: const Text('Chon loai van ban'),
               ),
-
               const SizedBox(height: 20),
               ElevatedButton(
                 onPressed: isLoading
                     ? null
                     : () async {
-                  if (!validateInputs(addLawVM)) return;
+                        if (!validateInputs(addLawVM)) {
+                          return;
+                        }
 
-                  setState(() => isLoading = true);
+                        setState(() => isLoading = true);
 
-                  final law = AddLawModel(
-                    sohieu: sohieuController.text.trim(),
-                    tenVanBan: tenVanBanController.text.trim(),
-                    ngayKy: ngayKyController.text.trim(),
-                    ngayHieuLuc: ngayHieuLucController.text.trim(),
-                    trangThai: (addLawVM.selectedTrangThai ?? 'CÒN HIỆU LỰC').trim(),
-                    macoquan: addLawVM.selectedCoQuan!,
-                    maloai: addLawVM.selectedLoaiVanBan!,
-                  );
+                        final law = AddLawModel(
+                          sohieu: sohieuController.text.trim(),
+                          tenVanBan: tenVanBanController.text.trim(),
+                          ngayKy: ngayKyController.text.trim(),
+                          ngayHieuLuc: ngayHieuLucController.text.trim(),
+                          trangThai: (addLawVM.selectedTrangThai ?? 'CON HIEU LUC').trim(),
+                          macoquan: addLawVM.selectedCoQuan!,
+                          maloai: addLawVM.selectedLoaiVanBan!,
+                        );
 
-                  final success = await addLawVM.addLaw(law);
-                  setState(() => isLoading = false);
+                        final success = await addLawVM.addLaw(law);
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() => isLoading = false);
 
-                  if (success) {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Thêm văn bản thành công!'),
-                      backgroundColor: Colors.green,
-                    ));
-                    clearInputs(addLawVM);
+                        if (success) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Them van ban thanh cong!'),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                          clearInputs(addLawVM);
 
-                    Future.delayed(const Duration(milliseconds: 400), () {
-                      if (!mounted) return;
-                      Navigator.pushNamed(context, "/addContent", arguments: law.sohieu);
-                    });
-                  } else {
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Lỗi khi thêm văn bản!'),
-                      backgroundColor: Colors.red,
-                    ));
-                  }
-                },
+                          Future.delayed(const Duration(milliseconds: 400), () {
+                            if (!mounted) {
+                              return;
+                            }
+                            Navigator.pushNamed(context, "/addContent", arguments: law.sohieu);
+                          });
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Loi khi them van ban!'),
+                              backgroundColor: Colors.red,
+                            ),
+                          );
+                        }
+                      },
                 child: isLoading
                     ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-                    : const Text('Thêm Văn bản'),
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('Them van ban'),
               ),
             ],
           ),
@@ -194,7 +228,7 @@ class _AddLawScreenState extends State<AddLawScreen> {
 
   Widget _buildTextField(TextEditingController controller, String label) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: TextField(
         controller: controller,
         decoration: InputDecoration(
@@ -213,10 +247,12 @@ class _AddLawScreenState extends State<AddLawScreen> {
         lawVM.selectedTrangThai == null ||
         lawVM.selectedCoQuan == null ||
         lawVM.selectedLoaiVanBan == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Vui lòng điền đầy đủ thông tin!'),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui long dien day du thong tin!'),
+          backgroundColor: Colors.red,
+        ),
+      );
       return false;
     }
     return true;
@@ -231,10 +267,40 @@ class _AddLawScreenState extends State<AddLawScreen> {
       _ngayKy = null;
       _ngayHieuLuc = null;
     });
-
-    // reset dropdown nếu muốn
     vm.setSelectedTrangThai(vm.trangThaiOptions.first);
     vm.setSelectedCoQuan(null);
     vm.setSelectedLoaiVanBan(null);
+  }
+
+  Future<void> _handleLegalFileUpload() async {
+    if (sohieuController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Vui long nhap so hieu truoc khi tai file.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => isUploadingLegalFile = true);
+    final result = await _legalIngestService.pickAndUploadDocument(
+      soHieu: sohieuController.text.trim(),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() => isUploadingLegalFile = false);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          result.success
+              ? 'Da ingest file ${result.fileName ?? ''}. Inserted: ${result.insertedCount}'
+              : result.message,
+        ),
+        backgroundColor: result.success ? Colors.green : Colors.red,
+      ),
+    );
   }
 }
