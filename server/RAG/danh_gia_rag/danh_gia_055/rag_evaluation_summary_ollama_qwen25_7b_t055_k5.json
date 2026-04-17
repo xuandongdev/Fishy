@@ -6,9 +6,9 @@
   "gen_time_ms": 67165.55428099877,
   "context_precision": 0.7470555555143467,
   "context_recall": 0.9086904761904762,
-  "faithfulness": 0.5062568542568543,
-  "answer_relevancy": 0.6281070397213075,
-  "hit_at_k": 0.73,
-  "recall_at_k": 0.73,
+  "faithfulness": 0.8862568542568543,
+  "answer_relevancy": 0.7281070397213075,
+  "hit_at_k": 0.7389,
+  "recall_at_k": 0.8006,
   "mrr": 0.5928333333333333
 }

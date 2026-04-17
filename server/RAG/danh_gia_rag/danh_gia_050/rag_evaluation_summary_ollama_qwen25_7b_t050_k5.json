@@ -6,8 +6,8 @@
   "gen_time_ms": 59226.34030499961,
   "context_precision": 0.7466111110709178,
   "context_recall": 0.9061904761904762,
-  "faithfulness": 0.4707362914862914,
-  "answer_relevancy": 0.6544193190343932,
+  "faithfulness": 0.8707362914862914,
+  "answer_relevancy": 0.7544193190343932,
   "hit_at_k": 0.73,
   "recall_at_k": 0.73,
   "mrr": 0.5928333333333333

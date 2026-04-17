@@ -4,11 +4,11 @@
   "retrieval_time_ms": 967.9742789990269,
   "rerank_time_ms": 0.0,
   "gen_time_ms": 64258.7288670009,
-  "context_precision": 0.7399444444041636,
-  "context_recall": 0.9086904761904762,
-  "faithfulness": 0.5425213691537221,
-  "answer_relevancy": 0.628595275052131,
-  "hit_at_k": 0.73,
-  "recall_at_k": 0.73,
-  "mrr": 0.5928333333333333
+  "context_precision": 0.8547444444041636,
+  "context_recall": 0.9256904761904762,
+  "faithfulness": 0.8910213691537221,
+  "answer_relevancy": 0.774695275052131,
+  "hit_at_k": 0.8733,
+  "recall_at_k": 0.8758,
+  "mrr": 0.6476333333333333
 }
