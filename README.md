@@ -29,7 +29,7 @@ Flutter App
   |   |- SentenceTransformer (multilingual-e5-large)
   |   |- LangChain retriever
   |   |- OpenAI chat model
-  |   `- Supabase RPC: match_legal_docs_v2
+  |   `- Supabase RPC: match_legal_docs_v3
   |
   `- YOLO API
       |- Ultralytics YOLO
@@ -61,7 +61,7 @@ Flutter App
 - Backend `server/RAG/langchain2.py`:
   - nhúng câu hỏi bằng `intfloat/multilingual-e5-large`,
   - trích số km nếu câu hỏi liên quan tốc độ,
-  - gọi RPC `match_legal_docs_v2` trên Supabase,
+  - gọi RPC `match_legal_docs_v3` trên Supabase,
   - dựng prompt từ context pháp luật,
   - sinh câu trả lời bằng `gpt-4o-mini`.
 - Cặp hỏi/đáp sau đó được lưu vào `lich_su_tro_chuyen`.
@@ -155,7 +155,7 @@ Các bảng và RPC đang được dùng trực tiếp trong code:
 - `coquanbanhanh`
 - `loaivanban`
 - `app_config`
-- `match_legal_docs_v2`
+- `match_legal_docs_v3`
 
 ## Cấu hình môi trường
 

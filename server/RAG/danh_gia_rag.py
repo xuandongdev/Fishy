@@ -30,7 +30,7 @@ SUPABASE_URL: Optional[str] = None
 SUPABASE_KEY: Optional[str] = None
 OPENAI_API_KEY: Optional[str] = None
 OLLAMA_MODEL = "qwen2.5:7b"
-GENERATOR_TEMPERATURE = 0.2
+GENERATOR_TEMPERATURE = 0.0
 
 MATCH_THRESHOLD = 0.65
 MATCH_COUNT = 5
@@ -115,7 +115,7 @@ def initialize_runtime() -> None:
     SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     OLLAMA_MODEL = "qwen2.5:7b"
-    GENERATOR_TEMPERATURE = 0.2
+    GENERATOR_TEMPERATURE = 0.0
     OPENAI_JUDGE_MODEL = os.getenv("OPENAI_JUDGE_MODEL", "gpt-4o-mini")
     HF_EMBED_MODEL = os.getenv("HF_EMBED_MODEL", "intfloat/multilingual-e5-large")
     TRUSTED_RAG_EVAL_URL = os.getenv("TRUSTED_RAG_EVAL_URL", "").strip() or None
@@ -245,7 +245,9 @@ def initialize_runtime() -> None:
                 "system",
                 "Ban la Tro ly Luat Giao thong Fishy. Hay tra loi dua tren du lieu phap luat duoc cung cap.\n"
                 "Neu cau hoi co nhac ro loai phuong tien (o to, xe may, xe dap, di bo), hay uu tien doi chieu dung nhom do.\n"
-                "Khi co so lieu cu the nhu toc do, hay doi chieu chinh xac muc phat.\n\n"
+                "Chi duoc ket luan nhung gi co trong can cu. Khong duoc tu bo sung muc phat, dieu khoan, ngoai le, hay suy dien tu can cu gan dung.\n"
+                "Neu can cu chua du khop truc tiep voi cau hoi, phai tra loi ro la chua du can cu retrieve duoc de ket luan chac chan.\n"
+                "Tra loi ngan, sat can cu, uu tien neu dung ten hanh vi va can cu.\n\n"
                 "DU LIEU LUAT:\n{context}",
             ),
             ("human", "{question}"),

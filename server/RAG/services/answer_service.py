@@ -55,11 +55,15 @@ class AnswerService:
         hits: List[Dict[str, Any]],
         history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
+        selected_hits = list(hits[:3])
         context_blocks = []
         sources = []
-        for item in hits:
+        for index, item in enumerate(selected_hits, start=1):
             context_blocks.append(
-                f"[{item.get('source_type')}] {item.get('label')}\nURL: {item.get('url') or 'null'}\nScore: {item.get('hybrid_score')}\n{item.get('content')}"
+                f"[CAN_CU_{index}] [{item.get('source_type')}] {item.get('label')}\n"
+                f"URL: {item.get('url') or 'null'}\n"
+                f"Score: {item.get('hybrid_score')}\n"
+                f"Noi dung: {item.get('content')}"
             )
             sources.append(
                 {
@@ -80,6 +84,8 @@ class AnswerService:
                 "role": "user",
                 "content": (
                     f"Cau hoi:\n{question}\n\n"
+                    "Hay tra loi chi dua tren cac can cu duoi day. "
+                    "Neu khong co can cu khop truc tiep, hay noi ro chua du can cu.\n\n"
                     f"Context retrieve duoc:\n\n" + "\n\n".join(context_blocks)
                 ),
             }
@@ -87,7 +93,7 @@ class AnswerService:
 
         completion = self.client.chat.completions.create(
             model=self.settings.answer_model_name,
-            temperature=0.2,
+            temperature=0,
             messages=messages,
         )
         answer = completion.choices[0].message.content or "Chua tao duoc cau tra loi."

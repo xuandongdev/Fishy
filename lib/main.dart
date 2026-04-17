@@ -35,6 +35,7 @@ import 'Themes/ThemeData.dart';
 import 'package:fishy/Services/ChatService.dart';
 import 'package:fishy/Services/LegalIngestService.dart';
 import 'package:fishy/Services/LocalNotiService.dart';
+import 'package:fishy/Services/LocalYoloService.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,6 +55,7 @@ void main() async {
   await ChatService.initializeApiUrl();
   await LegalIngestService.initializeApiUrl();
   await LocalNotiService.init();
+  await LocalYoloService.instance.init();
 
   runApp(
     MultiProvider(

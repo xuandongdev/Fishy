@@ -1,0 +1,73 @@
+description: Ultralytics YOLOv12m model trained on /kaggle/working/data.yaml
+author: Ultralytics
+date: '2026-04-17T00:18:07.375889'
+version: 8.4.19
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 320
+- 320
+names:
+  0: W.224
+  1: W.205c
+  2: P.102
+  3: R.302a
+  4: W.205a
+  5: W.207
+  6: W.201a
+  7: P.123a
+  8: I.434a
+  9: R.303
+  10: P.130
+  11: I.409
+  12: R.415a
+  13: W.245a
+  14: P.106a*Xe tải
+  15: W.203c
+  16: P.117*
+  17: P.124a*
+  18: P.107
+  19: P.124d
+  20: P.103a
+  21: W.203b
+  22: W.221b
+  23: P.111
+  24: P.129
+  25: S.505a*Xe máy
+  26: W.246a
+  27: W.225
+  28: S.505a*Xe tải và công
+  29: P.104
+  30: S.505a*Xe tải
+  31: Camera
+  32: P.123b
+  33: W.202b
+  34: B.8a
+  35: P.137
+  36: P.139
+  37: W.205b
+  38: P.127*50
+  39: P.127*60
+  40: P.127*80
+  41: P.127*40
+  42: R.301e
+  43: W.239b*
+  44: W.233
+  45: I.407a
+  46: P.131a
+  47: P.124b1
+  48: W.210
+  49: P.124c
+  50: W.201b
+  51: W.246c
+args:
+  batch: 1
+  fraction: 1.0
+  half: true
+  int8: false
+  nms: false
+channels: 3
+end2end: false

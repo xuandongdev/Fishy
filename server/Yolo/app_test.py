@@ -1,37 +1,29 @@
 import logging
 import os
 import sys
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
 from ultralytics import YOLO
 
 # ======================================================
-# 1. CẤU HÌNH
+# 1. CẤU HÌNH - CHỈ CẦN HARD CODE Ở ĐÂY
 # ======================================================
-MODEL_PATH = r"D:/Fishy/server/Yolo/Models/12mNew.pt"
+MODEL_PATH = r"D:/Fishy/server/Yolo/11s2.pt"
 
-# 4 file class riêng
-CLASS_CODE_PATH: Optional[str] = r"D:/Fishy/server/Yolo/class_code.txt"
-CLASS_VIE_PATH: Optional[str] = r"D:/Fishy/server/Yolo/class_vie.txt"
-CLASSES_EN_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_en.txt"
-CLASSES_VIE_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_vie.txt"
+# Hard code tối đa 2 file class.
+# - Để None hoặc "" nếu không dùng.
+# - Nếu chỉ có CLASS_1_PATH  -> dùng class_1
+# - Nếu có cả 2            -> ghép class_1 + class_2 theo từng dòng
+# - Nếu cả 2 đều trống     -> fallback sang model.names
+CLASS_1_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_en.txt"
+CLASS_2_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_vie.txt"
 
-ENABLE_CLASS_LOADING = True
-USE_MODEL_NAMES_IF_AVAILABLE = True
-
-# Bật/tắt từng nguồn class
-USE_CLASS_CODE = False
-USE_CLASS_VIE = False
-USE_CLASSES_EN = True
-USE_CLASSES_VIE = True
-
-# Ghép label theo ký tự này
 LABEL_SEPARATOR = " - "
-
+USE_MODEL_NAMES_IF_NO_CLASS_FILE = True
 DEFAULT_CONF = 0.25
 DEFAULT_IMGSZ = 640
 PORT_NUMBER = 8001
@@ -52,13 +44,24 @@ logger = logging.getLogger(__name__)
 model: Optional[YOLO] = None
 classes_dict: Dict[int, str] = {}
 
-
 # ======================================================
 # 4. HÀM HỖ TRỢ LOAD CLASS
 # ======================================================
+def _normalize_path(path: Optional[str]) -> Optional[str]:
+    if path is None:
+        return None
+    path = str(path).strip()
+    return path if path else None
+
+
 def _read_lines(path: Optional[str]) -> List[str]:
-    if not path or not os.path.exists(path):
+    path = _normalize_path(path)
+    if not path:
         return []
+    if not os.path.exists(path):
+        logger.warning("Không tìm thấy file class: %s", path)
+        return []
+
     with open(path, "r", encoding="utf-8") as f:
         return [line.strip() for line in f if line.strip()]
 
@@ -75,108 +78,84 @@ def _get_model_names(loaded_model: YOLO) -> Dict[int, str]:
     return names
 
 
-def get_enabled_class_sources() -> List[Tuple[str, str]]:
-    """
-    Trả về danh sách (source_name, path) đang được bật.
-    Thứ tự ở đây cũng chính là thứ tự ưu tiên khi ghép.
-    """
-    sources: List[Tuple[str, str]] = []
+def get_active_class_paths() -> List[Tuple[str, str]]:
+    active: List[Tuple[str, str]] = []
+    c1 = _normalize_path(CLASS_1_PATH)
+    c2 = _normalize_path(CLASS_2_PATH)
 
-    if USE_CLASS_CODE and CLASS_CODE_PATH:
-        sources.append(("class_code", CLASS_CODE_PATH))
+    if c1:
+        active.append(("class_1", c1))
+    if c2:
+        active.append(("class_2", c2))
 
-    if USE_CLASS_VIE and CLASS_VIE_PATH:
-        sources.append(("class_vie", CLASS_VIE_PATH))
-
-    if USE_CLASSES_EN and CLASSES_EN_PATH:
-        sources.append(("classes_en", CLASSES_EN_PATH))
-
-    if USE_CLASSES_VIE and CLASSES_VIE_PATH:
-        sources.append(("classes_vie", CLASSES_VIE_PATH))
-
-    return sources
+    return active
 
 
 def build_classes_dict(loaded_model: YOLO) -> Dict[int, str]:
-    """
-    Logic:
-    - Bật 0 path -> fallback model.names
-    - Bật 1 path -> dùng path đó
-    - Bật 2 path -> ghép 2 path đó
-    - Bật >2 path -> cảnh báo và chỉ lấy 2 path đầu tiên theo thứ tự ưu tiên
-    """
-    if not ENABLE_CLASS_LOADING:
-        logger.info("ENABLE_CLASS_LOADING=False -> không override tên class.")
-        return {}
+    active = get_active_class_paths()
 
-    enabled_sources = get_enabled_class_sources()
-
-    if len(enabled_sources) == 0:
-        logger.info("Không có file class nào được bật. Fallback sang model.names.")
-        if USE_MODEL_NAMES_IF_AVAILABLE:
+    if not active:
+        logger.info("Không khai báo CLASS_1_PATH/CLASS_2_PATH -> fallback sang model.names")
+        if USE_MODEL_NAMES_IF_NO_CLASS_FILE:
             model_names = _get_model_names(loaded_model)
             if model_names:
-                logger.info("Đã fallback sang model.names: %d lớp", len(model_names))
+                logger.info("Đã load từ model.names: %d lớp", len(model_names))
                 return model_names
-        logger.warning("Không có nguồn class nào để sử dụng.")
+        logger.warning("Không có nguồn class nào khả dụng")
         return {}
 
-    if len(enabled_sources) > 2:
-        logger.warning(
-            "Bạn đang bật %d nguồn class. Hệ thống chỉ ghép 2 nguồn đầu tiên: %s + %s",
-            len(enabled_sources),
-            enabled_sources[0][0],
-            enabled_sources[1][0],
-        )
-        enabled_sources = enabled_sources[:2]
+    loaded_lists: List[Tuple[str, List[str], str]] = []
+    for alias, path in active:
+        lines = _read_lines(path)
+        if lines:
+            loaded_lists.append((alias, lines, path))
+        else:
+            logger.warning("File %s không đọc được hoặc rỗng: %s", alias, path)
 
-    loaded_lists: List[Tuple[str, List[str]]] = []
-    for source_name, source_path in enabled_sources:
-        lines = _read_lines(source_path)
-        if not lines:
-            logger.warning("Nguồn %s rỗng hoặc không đọc được: %s", source_name, source_path)
-        loaded_lists.append((source_name, lines))
-
-    valid_lists = [(name, arr) for name, arr in loaded_lists if arr]
-
-    if not valid_lists:
-        logger.warning("Các file class được bật đều rỗng hoặc lỗi.")
-        if USE_MODEL_NAMES_IF_AVAILABLE:
+    if not loaded_lists:
+        logger.warning("Các file class đều rỗng/lỗi -> fallback sang model.names")
+        if USE_MODEL_NAMES_IF_NO_CLASS_FILE:
             model_names = _get_model_names(loaded_model)
             if model_names:
-                logger.info("Đã fallback sang model.names: %d lớp", len(model_names))
+                logger.info("Đã load từ model.names: %d lớp", len(model_names))
                 return model_names
         return {}
 
-    if len(valid_lists) == 1:
-        source_name, arr = valid_lists[0]
+    if len(loaded_lists) == 1:
+        alias, arr, path = loaded_lists[0]
         names = {i: arr[i] for i in range(len(arr))}
-        logger.info("Đã load class từ %s: %d lớp", source_name, len(names))
+        logger.info("Đã load %d lớp từ %s (%s)", len(names), alias, path)
         return names
 
-    # Có đúng 2 nguồn hợp lệ
-    (source_1, arr_1), (source_2, arr_2) = valid_lists[:2]
+    (alias_1, arr_1, path_1), (alias_2, arr_2, path_2) = loaded_lists[:2]
     size = min(len(arr_1), len(arr_2))
 
     if len(arr_1) != len(arr_2):
         logger.warning(
-            "Hai nguồn %s (%d) và %s (%d) lệch số lớp, dùng min=%d",
-            source_1, len(arr_1), source_2, len(arr_2), size
+            "Số dòng class lệch nhau: %s=%d, %s=%d -> dùng min=%d",
+            path_1,
+            len(arr_1),
+            path_2,
+            len(arr_2),
+            size,
         )
 
     names: Dict[int, str] = {}
     for i in range(size):
         left = arr_1[i].strip()
         right = arr_2[i].strip()
-
         if left and right:
             names[i] = f"{left}{LABEL_SEPARATOR}{right}"
         else:
             names[i] = left or right or f"class_{i}"
 
-    logger.info("Đã ghép class từ %s + %s: %d lớp", source_1, source_2, len(names))
+    logger.info(
+        "Đã ghép class từ %s + %s: %d lớp",
+        os.path.basename(path_1),
+        os.path.basename(path_2),
+        len(names),
+    )
     return names
-
 
 # ======================================================
 # 5. HÀM HỖ TRỢ ẢNH / DETECT
@@ -231,7 +210,6 @@ def run_detection(image: np.ndarray, conf: float, imgsz: int) -> Tuple[dict, np.
             cls_id = int(box.cls[0].item())
             confidence = float(box.conf[0].item())
             label = get_label_for_class_id(cls_id, result_names)
-
             detections.append(
                 {
                     "label": label,
@@ -245,6 +223,7 @@ def run_detection(image: np.ndarray, conf: float, imgsz: int) -> Tuple[dict, np.
             )
 
     summary = f"Phát hiện {len(detections)} đối tượng"
+    plotted = result.plot() if hasattr(result, "plot") else image
 
     return {
         "summary": summary,
@@ -253,13 +232,30 @@ def run_detection(image: np.ndarray, conf: float, imgsz: int) -> Tuple[dict, np.
         "count": len(detections),
         "w": int(image.shape[1]),
         "h": int(image.shape[0]),
-    }, result.plot() if hasattr(result, "plot") else image
+    }, plotted
 
+
+async def extract_upload_file(request: Request, file: Optional[UploadFile]) -> UploadFile:
+    """
+    Hỗ trợ cả 2 kiểu field:
+    - file  : Postman / chuẩn FastAPI
+    - image : app Flutter cũ trong project Fishy/Test2
+    """
+    if file is not None:
+        return file
+
+    form = await request.form()
+    for key in ["file", "image"]:
+        value = form.get(key)
+        if isinstance(value, UploadFile):
+            return value
+
+    raise HTTPException(status_code=400, detail="Không tìm thấy file upload (cần field 'file' hoặc 'image')")
 
 # ======================================================
 # 6. FASTAPI APP
 # ======================================================
-app = FastAPI(title="YOLO Postman Test API", version="1.0.0")
+app = FastAPI(title="YOLO Hardcode Class API", version="2.0.0")
 
 
 @app.on_event("startup")
@@ -287,43 +283,45 @@ def health() -> JSONResponse:
         {
             "status": "ok" if model is not None else "model_not_loaded",
             "model_path": MODEL_PATH,
-            "enable_class_loading": ENABLE_CLASS_LOADING,
-            "use_class_code": USE_CLASS_CODE,
-            "use_class_vie": USE_CLASS_VIE,
-            "use_classes_en": USE_CLASSES_EN,
-            "use_classes_vie": USE_CLASSES_VIE,
-            "enabled_sources": [name for name, _ in get_enabled_class_sources()],
+            "class_1_path": _normalize_path(CLASS_1_PATH),
+            "class_2_path": _normalize_path(CLASS_2_PATH),
+            "active_class_paths": [path for _, path in get_active_class_paths()],
             "class_count": len(classes_dict),
+            "preview_class_0": classes_dict.get(0),
         }
     )
 
 
 @app.post("/detect-lite")
 async def detect_lite(
-    file: UploadFile = File(...),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
     conf: float = Form(DEFAULT_CONF),
     imgsz: int = Form(DEFAULT_IMGSZ),
 ) -> JSONResponse:
     if model is None:
         raise HTTPException(status_code=500, detail="Model chưa được load")
 
-    file_bytes = await file.read()
+    upload = await extract_upload_file(request, file)
+    file_bytes = await upload.read()
     image = decode_upload_image(file_bytes)
     response_data, _ = run_detection(image, conf=conf, imgsz=imgsz)
-    response_data["filename"] = file.filename
+    response_data["filename"] = upload.filename
     return JSONResponse(response_data)
 
 
 @app.post("/detect-image")
 async def detect_image(
-    file: UploadFile = File(...),
+    request: Request,
+    file: Optional[UploadFile] = File(None),
     conf: float = Form(DEFAULT_CONF),
     imgsz: int = Form(DEFAULT_IMGSZ),
 ) -> Response:
     if model is None:
         raise HTTPException(status_code=500, detail="Model chưa được load")
 
-    file_bytes = await file.read()
+    upload = await extract_upload_file(request, file)
+    file_bytes = await upload.read()
     image = decode_upload_image(file_bytes)
     _, plotted = run_detection(image, conf=conf, imgsz=imgsz)
 
