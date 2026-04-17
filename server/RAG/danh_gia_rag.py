@@ -32,9 +32,9 @@ OPENAI_API_KEY: Optional[str] = None
 OLLAMA_MODEL = "qwen2.5:7b"
 GENERATOR_TEMPERATURE = 0.2
 
-MATCH_THRESHOLD = 0.55
+MATCH_THRESHOLD = 0.65
 MATCH_COUNT = 5
-OUTPUT_DIR = "danh_gia_rag/danh_gia_055"
+OUTPUT_DIR = "danh_gia_rag/danh_gia_065"
 
 OPENAI_JUDGE_MODEL = "gpt-4o-mini"
 JUDGE_MAX_TOKENS = 4096
@@ -210,14 +210,13 @@ def initialize_runtime() -> None:
             vehicle_type = self.detect_vehicle_type(query)
 
             rpc_res = supabase.rpc(
-                "match_legal_docs_v2",
+                "match_legal_docs_v3",
                 {
                     "vector_truy_van": query_vector,
                     "van_ban_truy_van": query,
                     "nguong_khop": self.match_threshold,
                     "so_luong_ket_qua": self.match_count,
                     "so_km_truy_van": query_km,
-                    "p_loai_phuong_tien_truy_van": vehicle_type,
                 },
             ).execute()
 
@@ -230,7 +229,7 @@ def initialize_runtime() -> None:
                             "sothutund": hit.get("sothutund"),
                             "sohieu": hit.get("sohieu"),
                             "path": hit.get("duong_dan_phan_cap"),
-                            "vehicle_type": hit.get("loai_phuong_tien") if str(hit.get("loai_phuong_tien") or "").strip().lower() in VEHICLE_TYPES else None,
+                            "vehicle_type": vehicle_type if vehicle_type in VEHICLE_TYPES else None,
                         },
                     )
                 )

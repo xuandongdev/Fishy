@@ -81,26 +81,25 @@ class RetrievalService:
         vehicle_type = self.detect_vehicle_type(question)
         try:
             response = self.supabase.rpc(
-                "match_legal_docs_v2",
+                "match_legal_docs_v3",
                 {
                     "vector_truy_van": query_vector,
                     "van_ban_truy_van": question,
                     "nguong_khop": self.settings.rag_legal_score_threshold,
                     "so_luong_ket_qua": self.rerank_candidate_count,
                     "so_km_truy_van": query_km,
-                    "p_loai_phuong_tien_truy_van": vehicle_type,
                 },
             ).execute()
             hits = self._map_legacy_legal_hits(response.data or [])
             logger.info(
-                "legal retrieval rpc | function=match_legal_docs_v2 | results=%s | vehicle_type=%s | query_km=%s",
+                "legal retrieval rpc | function=match_legal_docs_v3 | results=%s | vehicle_type=%s | query_km=%s",
                 len(hits),
                 vehicle_type,
                 query_km,
             )
             return hits
         except Exception as exc:
-            logger.warning("match_legal_docs_v2 unavailable, fallback to hybrid_search_legal_sources: %s", exc)
+            logger.warning("match_legal_docs_v3 unavailable, fallback to hybrid_search_legal_sources: %s", exc)
             vector_literal = "[" + ",".join(f"{value:.10f}" for value in query_vector) + "]"
             legacy = self.supabase.rpc(
                 "hybrid_search_legal_sources",
@@ -316,8 +315,8 @@ class RetrievalService:
                     "label": item.get("duong_dan_phan_cap") or item.get("sohieu") or "Legal DB",
                     "content": item.get("noidung", ""),
                     "url": None,
-                    "vehicle_type": self._normalize_vehicle_type(item.get("loai_phuong_tien")),
-                    "loai_phuong_tien": self._normalize_vehicle_type(item.get("loai_phuong_tien")),
+                    "vehicle_type": "khac",
+                    "loai_phuong_tien": "khac",
                     "lexical_score": score,
                     "semantic_score": score,
                     "hybrid_score": score,
