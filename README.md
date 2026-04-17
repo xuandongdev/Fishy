@@ -7,7 +7,13 @@ FISHY là hệ thống hỗ trợ tra cứu luật giao thông và nhận diện
 - Backend legal ingest để nạp văn bản pháp luật từ file.
 - Backend YOLO để nhận diện ảnh khi dùng on-device model.
 - Bộ script đánh giá chất lượng RAG.
-
+![Demo GIF](./assets/ok.gif)
+<p align="center">
+  <img src="./assets/1.jpg" width="24%" />
+  <img src="./assets/2.jpg" width="24%" />
+  <img src="./assets/3.jpg" width="24%" />
+  <img src="./assets/4.jpg" width="24%" />
+</p>
 ## Kiến trúc hiện tại
 
 ```text
