@@ -38,6 +38,9 @@ class AnswerService:
         action = str(debug_meta.get("action") or "")
         query_km = debug_meta.get("query_km")
         topic_mismatch = bool(debug_meta.get("topic_mismatch"))
+        min_score = float(debug_meta.get("min_score_override") or min_score)
+        min_evidence = int(debug_meta.get("min_evidence_override") or min_evidence)
+        has_uploaded_doc = any(item.get("source_type") in {"user_upload", "admin_upload"} for item in hits)
 
         if len(hits) < min_evidence:
             return {"insufficient_context": True, "reason": "not_enough_evidence"}
@@ -51,7 +54,7 @@ class AnswerService:
         if topic_mismatch:
             return {"insufficient_context": True, "reason": "topic_mismatch"}
 
-        if intent in EXACT_INTENTS and not any(item.get("source_type") == "legal_db" for item in hits):
+        if intent in EXACT_INTENTS and not has_uploaded_doc and not any(item.get("source_type") == "legal_db" for item in hits):
             return {"insufficient_context": True, "reason": "exact_query_without_legal_hit"}
 
         if query_km is not None and action == "qua_toc_do":
@@ -96,14 +99,24 @@ class AnswerService:
                     "type": item.get("source_type"),
                     "label": item.get("label"),
                     "url": item.get("url"),
+                    "ten_van_ban": item.get("ten_van_ban") or item.get("title"),
+                    "so_hieu": item.get("so_hieu"),
+                    "trang_thai": item.get("trang_thai"),
+                    "filename": item.get("filename"),
+                    "section_path": item.get("section_path"),
+                    "page_start": item.get("page_start"),
+                    "page_end": item.get("page_end"),
                 }
             )
 
         evidence = self.assess_context(
             question=effective_question or question,
             hits=selected_hits,
-            min_score=self.settings.rag_legal_score_threshold,
-            min_evidence=1 if str(debug_meta.get("intent") or "") == "giai_thich_chung" else self.settings.rag_min_legal_evidence,
+            min_score=float(debug_meta.get("min_score_override") or self.settings.rag_legal_score_threshold),
+            min_evidence=int(
+                debug_meta.get("min_evidence_override")
+                or (1 if str(debug_meta.get("intent") or "") == "giai_thich_chung" else self.settings.rag_min_legal_evidence)
+            ),
             debug_meta=debug_meta,
         )
         if evidence["insufficient_context"]:
@@ -276,6 +289,13 @@ class AnswerService:
             f"HybridScore: {hybrid_score}\n"
             f"RerankScore: {final_score}\n"
             f"CrossEncoder: {ce_score}\n"
+            f"TenVanBan: {item.get('ten_van_ban') or item.get('title')}\n"
+            f"SoHieu: {item.get('so_hieu')}\n"
+            f"TrangThai: {item.get('trang_thai')}\n"
+            f"FileName: {item.get('filename')}\n"
+            f"SectionPath: {item.get('section_path')}\n"
+            f"PageStart: {item.get('page_start')}\n"
+            f"PageEnd: {item.get('page_end')}\n"
             f"MinKM: {min_km}\n"
             f"MaxKM: {max_km}\n"
             f"KmPhuHop: {km_match}\n"

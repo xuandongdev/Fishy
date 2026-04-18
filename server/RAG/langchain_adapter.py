@@ -115,6 +115,15 @@ class LangChainAdapter:
         active_session_id = session_id or str(uuid.uuid4())
         history = self._build_history(active_session_id, chat_history)
         route = self.route_question_with_history(question, history)
+        has_global_docs = self.retrieval_service.has_global_docs()
+        logger.info(
+            "route precheck | session_id=%s | initial_route=%s | has_global_docs=%s",
+            active_session_id,
+            route,
+            has_global_docs,
+        )
+        if route != "legal_rag" and has_global_docs:
+            route = "legal_rag"
         start_time = time.perf_counter()
 
         logger.info(
@@ -157,7 +166,7 @@ class LangChainAdapter:
             "chat completed | session_id=%s | route=%s | used_firecrawl=%s | source_count=%s | latency_ms=%s",
             active_session_id,
             route,
-            False,
+            result.get("used_firecrawl", False),
             len(result.get("sources", [])),
             latency_ms,
         )
@@ -198,14 +207,29 @@ class LangChainAdapter:
             intent=intent,
             action=action,
             rewrite_confidence=rewrite_confidence,
+            session_id=session_id,
             history=history,
         )
         final_hits = retrieval.get("combined_results", [])
+        min_score = (
+            self.settings.global_doc_score_threshold
+            if retrieval.get("used_global_docs")
+            else (
+                self.settings.session_doc_score_threshold
+                if retrieval.get("used_session_docs")
+                else self.settings.rag_legal_score_threshold
+            )
+        )
+        min_evidence = (
+            1
+            if retrieval.get("used_global_docs") or retrieval.get("used_session_docs") or intent == "giai_thich_chung"
+            else self.settings.rag_min_legal_evidence
+        )
         evidence = self.answer_service.assess_context(
             question=effective_question,
             hits=final_hits,
-            min_score=self.settings.rag_legal_score_threshold,
-            min_evidence=1 if intent == "giai_thich_chung" else self.settings.rag_min_legal_evidence,
+            min_score=min_score,
+            min_evidence=min_evidence,
             debug_meta={
                 "intent": intent,
                 "action": action,
@@ -214,6 +238,9 @@ class LangChainAdapter:
                 "is_followup": is_followup,
                 "rewrite_confidence": rewrite_confidence,
                 "topic_mismatch": retrieval.get("topic_mismatch", False),
+                "used_session_docs": retrieval.get("used_session_docs", False),
+                "min_score_override": min_score,
+                "min_evidence_override": min_evidence,
             },
         )
         logger.info(
@@ -224,6 +251,38 @@ class LangChainAdapter:
             len(retrieval.get("legal_results", [])),
             retrieval.get("km_match_count", 0),
         )
+
+        if (retrieval.get("used_global_docs") or retrieval.get("used_session_docs")) and (not final_hits or evidence["insufficient_context"]):
+            retrieval = self.retrieval_service.retrieve_context(
+                question=effective_question,
+                original_question=original_question,
+                effective_question=effective_question,
+                query_vehicle_type=query_vehicle_type,
+                query_km=query_km,
+                intent=intent,
+                action=action,
+                rewrite_confidence=rewrite_confidence,
+                session_id=session_id,
+                history=history,
+                skip_session_docs=True,
+                skip_global_docs=True,
+            )
+            final_hits = retrieval.get("combined_results", [])
+            evidence = self.answer_service.assess_context(
+                question=effective_question,
+                hits=final_hits,
+                min_score=self.settings.rag_legal_score_threshold,
+                min_evidence=1 if intent == "giai_thich_chung" else self.settings.rag_min_legal_evidence,
+                debug_meta={
+                    "intent": intent,
+                    "action": action,
+                    "vehicle_type": query_vehicle_type,
+                    "query_km": query_km,
+                    "is_followup": is_followup,
+                    "rewrite_confidence": rewrite_confidence,
+                    "topic_mismatch": retrieval.get("topic_mismatch", False),
+                },
+            )
 
         if not final_hits or evidence["insufficient_context"]:
             return self._build_safe_legal_response(
@@ -251,6 +310,9 @@ class LangChainAdapter:
                 "is_followup": is_followup,
                 "rewrite_confidence": rewrite_confidence,
                 "topic_mismatch": retrieval.get("topic_mismatch", False),
+                "used_session_docs": retrieval.get("used_session_docs", False),
+                "min_score_override": min_score,
+                "min_evidence_override": min_evidence,
             },
         )
         gen_time_ms = round((time.perf_counter() - gen_start) * 1000, 2)
@@ -263,6 +325,70 @@ class LangChainAdapter:
         )
 
         if answer_bundle.get("insufficient_context"):
+            if retrieval.get("used_global_docs") or retrieval.get("used_session_docs"):
+                retrieval = self.retrieval_service.retrieve_context(
+                    question=effective_question,
+                    original_question=original_question,
+                    effective_question=effective_question,
+                    query_vehicle_type=query_vehicle_type,
+                    query_km=query_km,
+                    intent=intent,
+                    action=action,
+                    rewrite_confidence=rewrite_confidence,
+                    session_id=session_id,
+                    history=history,
+                    skip_session_docs=True,
+                    skip_global_docs=True,
+                )
+                final_hits = retrieval.get("combined_results", [])
+                if final_hits:
+                    answer_bundle = self.answer_service.generate_answer(
+                        question=original_question,
+                        hits=final_hits,
+                        history=history,
+                        effective_question=effective_question,
+                        debug_meta={
+                            "intent": intent,
+                            "action": action,
+                            "vehicle_type": query_vehicle_type,
+                            "query_km": query_km,
+                            "is_followup": is_followup,
+                            "rewrite_confidence": rewrite_confidence,
+                            "topic_mismatch": retrieval.get("topic_mismatch", False),
+                        },
+                    )
+                    if not answer_bundle.get("insufficient_context"):
+                        return {
+                            "success": True,
+                            "answer": answer_bundle["answer"],
+                            "sources": answer_bundle.get("sources", []),
+                            "used_fallback": retrieval.get("used_fallback", False),
+                            "used_firecrawl": bool(retrieval.get("firecrawl_called", False)),
+                            "evaluation": self._build_evaluation_payload(
+                                final_hits=final_hits,
+                                candidate_hits=retrieval.get("candidate_results", []),
+                                timings={
+                                    "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                                    "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                                    "gen_time_ms": gen_time_ms,
+                                },
+                                detected_vehicle_type=query_vehicle_type,
+                            ),
+                            "debug": self._build_debug_info(retrieval, branch="legal_rag", effective_question=effective_question),
+                            "meta": {
+                                "used_legal_retrieval": True,
+                                "source_count": len(answer_bundle.get("sources", [])),
+                                "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
+                                "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
+                                "gen_time_ms": gen_time_ms,
+                                "detected_vehicle_type": query_vehicle_type,
+                                "effective_question": effective_question,
+                                "query_km": query_km,
+                                "intent": intent,
+                                "action": action,
+                                "rewrite_confidence": rewrite_confidence,
+                            },
+                        }
             return self._build_safe_legal_response(
                 retrieval=retrieval,
                 final_hits=final_hits,
@@ -279,7 +405,7 @@ class LangChainAdapter:
             "answer": answer_bundle["answer"],
             "sources": answer_bundle.get("sources", []),
             "used_fallback": retrieval.get("used_fallback", False),
-            "used_firecrawl": False,
+            "used_firecrawl": bool(retrieval.get("firecrawl_called", False)),
             "evaluation": self._build_evaluation_payload(
                 final_hits=final_hits,
                 candidate_hits=retrieval.get("candidate_results", []),
@@ -322,7 +448,7 @@ class LangChainAdapter:
             "answer": "Chưa đủ căn cứ trong dữ liệu retrieve được để kết luận chính xác.",
             "sources": [],
             "used_fallback": retrieval.get("used_fallback", False),
-            "used_firecrawl": False,
+            "used_firecrawl": bool(retrieval.get("firecrawl_called", False)),
             "evaluation": self._build_evaluation_payload(
                 final_hits=final_hits,
                 candidate_hits=retrieval.get("candidate_results", []),
@@ -433,14 +559,20 @@ class LangChainAdapter:
             "v4_error_reason": retrieval.get("v4_error_reason"),
             "legal_results": len(retrieval.get("legal_results", [])),
             "trusted_cache_results": len(retrieval.get("trusted_cache_results", [])),
+            "used_global_docs": retrieval.get("used_global_docs", False),
+            "global_doc_hits": retrieval.get("global_doc_hits", 0),
+            "global_doc_top_score": retrieval.get("global_doc_top_score", 0.0),
+            "used_session_docs": retrieval.get("used_session_docs", False),
+            "session_doc_hits": retrieval.get("session_doc_hits", 0),
+            "session_doc_source_count": retrieval.get("session_doc_source_count", 0),
             "trusted_intent_match_count": retrieval.get("trusted_intent_match_count", 0),
             "trusted_topic_mismatch": retrieval.get("trusted_topic_mismatch", False),
             "candidate_results": len(retrieval.get("candidate_results", [])),
             "final_hits": len(retrieval.get("combined_results", [])),
-            "firecrawl_called": False,
-            "searched_sources_count": 0,
-            "scraped_urls_count": 0,
-            "firecrawl_cached": 0,
+            "firecrawl_called": retrieval.get("firecrawl_called", False),
+            "searched_sources_count": retrieval.get("searched_sources_count", 0),
+            "scraped_urls_count": retrieval.get("scraped_urls_count", 0),
+            "firecrawl_cached": retrieval.get("firecrawl_cached", 0),
             "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
             "query_km": retrieval.get("query_km"),
             "intent": retrieval.get("intent"),

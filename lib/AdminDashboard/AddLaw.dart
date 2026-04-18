@@ -19,9 +19,11 @@ class _WebAddLawState extends State<WebAddLaw> {
   final _tenVanBanController = TextEditingController();
   final _ngayKyController = TextEditingController();
   final _ngayHieuLucController = TextEditingController();
+  final _linhVucController = TextEditingController();
   final LegalIngestService _legalIngestService = LegalIngestService();
 
   bool _isUploadingLegalFile = false;
+  PickedLegalDocument? _selectedFile;
 
   @override
   void dispose() {
@@ -29,6 +31,7 @@ class _WebAddLawState extends State<WebAddLaw> {
     _tenVanBanController.dispose();
     _ngayKyController.dispose();
     _ngayHieuLucController.dispose();
+    _linhVucController.dispose();
     super.dispose();
   }
 
@@ -51,9 +54,65 @@ class _WebAddLawState extends State<WebAddLaw> {
     _tenVanBanController.clear();
     _ngayKyController.clear();
     _ngayHieuLucController.clear();
+    _linhVucController.clear();
+    _selectedFile = null;
     vm.setSelectedCoQuan(null);
     vm.setSelectedLoaiVanBan(null);
     vm.setSelectedTrangThai(vm.trangThaiOptions.first);
+  }
+
+  bool _hasMeaningfulManualMetadata(AddLawVM vm) {
+    return _soHieuController.text.trim().isNotEmpty ||
+        _tenVanBanController.text.trim().isNotEmpty ||
+        _ngayKyController.text.trim().isNotEmpty ||
+        _ngayHieuLucController.text.trim().isNotEmpty ||
+        _linhVucController.text.trim().isNotEmpty ||
+        vm.selectedCoQuan != null ||
+        vm.selectedLoaiVanBan != null;
+  }
+
+  bool _isManualComplete(AddLawVM vm) {
+    return _soHieuController.text.trim().isNotEmpty &&
+        _tenVanBanController.text.trim().isNotEmpty &&
+        _ngayKyController.text.trim().isNotEmpty &&
+        _ngayHieuLucController.text.trim().isNotEmpty &&
+        vm.selectedTrangThai != null &&
+        vm.selectedCoQuan != null &&
+        vm.selectedLoaiVanBan != null;
+  }
+
+  Map<String, String?> _buildUploadMetadata(AddLawVM vm) {
+    final hasManual = _hasMeaningfulManualMetadata(vm);
+    final selectedCoQuan = vm.coQuanList.cast<Map<String, dynamic>?>().firstWhere(
+          (item) => item?['macoquan'] == vm.selectedCoQuan,
+          orElse: () => null,
+        );
+    final selectedLoai = vm.loaiVanBanList.cast<Map<String, dynamic>?>().firstWhere(
+          (item) => item?['maloai'] == vm.selectedLoaiVanBan,
+          orElse: () => null,
+        );
+    return {
+      'so_hieu': _soHieuController.text.trim(),
+      'ten_van_ban': _tenVanBanController.text.trim(),
+      'loai_van_ban': (selectedLoai?['tenloai'] ?? '').toString(),
+      'trang_thai': hasManual ? _normalizeTrangThai(vm.selectedTrangThai) : '',
+      'ngay_ban_hanh': _ngayKyController.text.trim(),
+      'ngay_hieu_luc': _ngayHieuLucController.text.trim(),
+      'linh_vuc': _linhVucController.text.trim(),
+      'co_quan_ban_hanh': (selectedCoQuan?['tencoquan'] ?? '').toString(),
+      'uploaded_by': 'admin',
+    };
+  }
+
+  String _normalizeTrangThai(String? value) {
+    final normalized = (value ?? '').toUpperCase();
+    if (normalized.contains('HET')) {
+      return 'hetHieuLuc';
+    }
+    if (normalized.contains('CON')) {
+      return 'conHieuLuc';
+    }
+    return value?.trim() ?? '';
   }
 
   @override
@@ -75,7 +134,7 @@ class _WebAddLawState extends State<WebAddLaw> {
         automaticallyImplyLeading: false,
         actions: [
           IconButton(
-            tooltip: 'Tai file vao legal_ingest',
+            tooltip: 'Chon file PDF/DOCX',
             onPressed: _isUploadingLegalFile ? null : _handleLegalFileUpload,
             icon: _isUploadingLegalFile
                 ? const SizedBox(
@@ -105,7 +164,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                         labelText: 'So hieu van ban',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Nhap so hieu' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && (v == null || v.trim().isEmpty)) {
+                          return null;
+                        }
+                        return (v == null || v.trim().isEmpty) ? 'Nhap so hieu' : null;
+                      },
                     ),
                   ),
                   const SizedBox(width: 20),
@@ -117,7 +181,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                         labelText: 'Ten/Trich yeu van ban',
                         border: OutlineInputBorder(),
                       ),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Nhap ten van ban' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && (v == null || v.trim().isEmpty)) {
+                          return null;
+                        }
+                        return (v == null || v.trim().isEmpty) ? 'Nhap ten van ban' : null;
+                      },
                     ),
                   ),
                 ],
@@ -134,7 +203,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                         border: OutlineInputBorder(),
                       ),
                       readOnly: true,
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Chon ngay ky' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && (v == null || v.trim().isEmpty)) {
+                          return null;
+                        }
+                        return (v == null || v.trim().isEmpty) ? 'Chon ngay ky' : null;
+                      },
                       onTap: () => _selectDate(context, _ngayKyController),
                     ),
                   ),
@@ -148,7 +222,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                         border: OutlineInputBorder(),
                       ),
                       readOnly: true,
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Chon ngay hieu luc' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && (v == null || v.trim().isEmpty)) {
+                          return null;
+                        }
+                        return (v == null || v.trim().isEmpty) ? 'Chon ngay hieu luc' : null;
+                      },
                       onTap: () => _selectDate(context, _ngayHieuLucController),
                     ),
                   ),
@@ -169,7 +248,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                           )
                           .toList(),
                       onChanged: vm.setSelectedTrangThai,
-                      validator: (v) => (v == null || v.trim().isEmpty) ? 'Chon trang thai' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && (v == null || v.trim().isEmpty)) {
+                          return null;
+                        }
+                        return (v == null || v.trim().isEmpty) ? 'Chon trang thai' : null;
+                      },
                     ),
                   ),
                 ],
@@ -193,7 +277,12 @@ class _WebAddLawState extends State<WebAddLaw> {
                           )
                           .toList(),
                       onChanged: vm.setSelectedCoQuan,
-                      validator: (v) => v == null ? 'Chon co quan' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && v == null) {
+                          return null;
+                        }
+                        return v == null ? 'Chon co quan' : null;
+                      },
                     ),
                   ),
                   const SizedBox(width: 20),
@@ -213,9 +302,42 @@ class _WebAddLawState extends State<WebAddLaw> {
                           )
                           .toList(),
                       onChanged: vm.setSelectedLoaiVanBan,
-                      validator: (v) => v == null ? 'Chon loai van ban' : null,
+                      validator: (v) {
+                        if (_selectedFile != null && v == null) {
+                          return null;
+                        }
+                        return v == null ? 'Chon loai van ban' : null;
+                      },
                     ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              TextFormField(
+                controller: _linhVucController,
+                decoration: const InputDecoration(
+                  labelText: 'Linh vuc (khong bat buoc)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _selectedFile == null ? 'Chua chon file PDF/DOCX' : 'Da chon file: ${_selectedFile!.fileName}',
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _isUploadingLegalFile ? null : _handleLegalFileUpload,
+                    icon: const Icon(Icons.attach_file),
+                    label: Text(_selectedFile == null ? 'Chon file' : 'Doi file'),
+                  ),
+                  if (_selectedFile != null)
+                    TextButton(
+                      onPressed: () => setState(() => _selectedFile = null),
+                      child: const Text('Bo file'),
+                    ),
                 ],
               ),
               const SizedBox(height: 40),
@@ -231,10 +353,16 @@ class _WebAddLawState extends State<WebAddLaw> {
                       foregroundColor: Colors.white,
                     ),
                     onPressed: () async {
-                      if (!_formKey.currentState!.validate()) {
+                      final hasManualMetadata = _hasMeaningfulManualMetadata(vm);
+                      if (!hasManualMetadata && _selectedFile == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Hay nhap metadata hoac chon file PDF/DOCX.')),
+                        );
                         return;
                       }
-                      if (vm.selectedCoQuan == null || vm.selectedLoaiVanBan == null) {
+                      final canPersistManual = _isManualComplete(vm);
+                      if (hasManualMetadata && !canPersistManual && _selectedFile == null) {
+                        _formKey.currentState!.validate();
                         return;
                       }
 
@@ -244,22 +372,33 @@ class _WebAddLawState extends State<WebAddLaw> {
                         ngayKy: _ngayKyController.text.trim(),
                         ngayHieuLuc: _ngayHieuLucController.text.trim(),
                         trangThai: (vm.selectedTrangThai ?? 'CON HIEU LUC').trim(),
-                        macoquan: vm.selectedCoQuan!,
-                        maloai: vm.selectedLoaiVanBan!,
+                        macoquan: vm.selectedCoQuan,
+                        maloai: vm.selectedLoaiVanBan,
                       );
 
-                      final success = await vm.addLaw(newLaw);
+                      bool success = true;
+                      if (hasManualMetadata && canPersistManual) {
+                        success = await vm.addLaw(newLaw);
+                      }
+                      final ingestResult = await _legalIngestService.uploadGlobalDoc(
+                        metadata: _buildUploadMetadata(vm),
+                        pickedFile: _selectedFile,
+                      );
                       if (!mounted) {
                         return;
                       }
 
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(success ? 'Them thanh cong!' : 'Loi khi them!'),
+                          content: Text(
+                            success && ingestResult.success
+                                ? 'Da luu van ban. Chunks: ${ingestResult.chunksIndexed}. Sections: ${ingestResult.sectionsCount}'
+                                : (!success ? 'Loi khi luu metadata van ban!' : ingestResult.message),
+                          ),
                         ),
                       );
 
-                      if (success) {
+                      if (success && ingestResult.success) {
                         _clearForm(vm);
                       }
                     },
@@ -274,34 +413,29 @@ class _WebAddLawState extends State<WebAddLaw> {
   }
 
   Future<void> _handleLegalFileUpload() async {
-    if (_soHieuController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui long nhap so hieu truoc khi tai file.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      return;
-    }
-
     setState(() => _isUploadingLegalFile = true);
-    final result = await _legalIngestService.pickAndUploadDocument(
-      soHieu: _soHieuController.text.trim(),
-    );
-    if (!mounted) {
-      return;
+    try {
+      final picked = await _legalIngestService.pickDocument();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _selectedFile = picked);
+      if (picked != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Da chon file ${picked.fileName}. Bam "LUU DU LIEU" de lap chi muc.')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUploadingLegalFile = false);
+      }
     }
-    setState(() => _isUploadingLegalFile = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.success
-              ? 'Da ingest file ${result.fileName ?? ''}. Inserted: ${result.insertedCount}'
-              : result.message,
-        ),
-        backgroundColor: result.success ? Colors.green : Colors.red,
-      ),
-    );
   }
 }

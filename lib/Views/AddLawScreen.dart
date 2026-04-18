@@ -17,12 +17,14 @@ class _AddLawScreenState extends State<AddLawScreen> {
   final TextEditingController tenVanBanController = TextEditingController();
   final TextEditingController ngayKyController = TextEditingController();
   final TextEditingController ngayHieuLucController = TextEditingController();
+  final TextEditingController linhVucController = TextEditingController();
   final LegalIngestService _legalIngestService = LegalIngestService();
 
   DateTime? _ngayKy;
   DateTime? _ngayHieuLuc;
   bool isLoading = false;
   bool isUploadingLegalFile = false;
+  PickedLegalDocument? _selectedFile;
 
   @override
   void dispose() {
@@ -30,6 +32,7 @@ class _AddLawScreenState extends State<AddLawScreen> {
     tenVanBanController.dispose();
     ngayKyController.dispose();
     ngayHieuLucController.dispose();
+    linhVucController.dispose();
     super.dispose();
   }
 
@@ -63,7 +66,7 @@ class _AddLawScreenState extends State<AddLawScreen> {
         title: const Text('Them van ban moi'),
       ),
       floatingActionButton: FloatingActionButton(
-        tooltip: 'Tai file vao legal_ingest',
+        tooltip: 'Tai file vao kho tri thuc dung chung',
         onPressed: isUploadingLegalFile ? null : _handleLegalFileUpload,
         backgroundColor: const Color(0xFF27408B),
         child: isUploadingLegalFile
@@ -91,6 +94,7 @@ class _AddLawScreenState extends State<AddLawScreen> {
             children: [
               _buildTextField(sohieuController, 'So hieu van ban'),
               _buildTextField(tenVanBanController, 'Ten van ban'),
+              _buildTextField(linhVucController, 'Linh vuc (khong bat buoc)'),
               ListTile(
                 title: Text(
                   _ngayKy == null
@@ -161,51 +165,89 @@ class _AddLawScreenState extends State<AddLawScreen> {
                 hint: const Text('Chon loai van ban'),
               ),
               const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  _selectedFile == null
+                      ? 'Chua chon file PDF/DOCX'
+                      : 'Da chon file: ${_selectedFile!.fileName}',
+                ),
+                subtitle: const Text('Co the chi nhap tay, chi chon file, hoac ket hop ca hai'),
+                trailing: TextButton.icon(
+                  onPressed: isUploadingLegalFile ? null : _handleLegalFileUpload,
+                  icon: isUploadingLegalFile
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.attach_file),
+                  label: Text(_selectedFile == null ? 'Chon file' : 'Doi file'),
+                ),
+              ),
+              if (_selectedFile != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => setState(() => _selectedFile = null),
+                    child: const Text('Bo file da chon'),
+                  ),
+                ),
+              const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: isLoading
                     ? null
                     : () async {
-                        if (!validateInputs(addLawVM)) {
+                        if (!validateInputs(addLawVM, requireCompleteManual: false)) {
                           return;
                         }
 
                         setState(() => isLoading = true);
 
+                        final hasMeaningfulManualMetadata = _hasMeaningfulManualMetadata(addLawVM);
+                        final canPersistManualToDb = validateInputs(addLawVM, requireCompleteManual: true, showSnackBar: false);
                         final law = AddLawModel(
                           sohieu: sohieuController.text.trim(),
                           tenVanBan: tenVanBanController.text.trim(),
                           ngayKy: ngayKyController.text.trim(),
                           ngayHieuLuc: ngayHieuLucController.text.trim(),
                           trangThai: (addLawVM.selectedTrangThai ?? 'CON HIEU LUC').trim(),
-                          macoquan: addLawVM.selectedCoQuan!,
-                          maloai: addLawVM.selectedLoaiVanBan!,
+                          macoquan: addLawVM.selectedCoQuan,
+                          maloai: addLawVM.selectedLoaiVanBan,
                         );
 
-                        final success = await addLawVM.addLaw(law);
+                        bool success = true;
+                        if (hasMeaningfulManualMetadata && canPersistManualToDb) {
+                          success = await addLawVM.addLaw(law);
+                        }
+
+                        final ingestResult = await _legalIngestService.uploadGlobalDoc(
+                          metadata: _buildUploadMetadata(addLawVM),
+                          pickedFile: _selectedFile,
+                        );
                         if (!mounted) {
                           return;
                         }
                         setState(() => isLoading = false);
 
-                        if (success) {
+                        if (success && ingestResult.success) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Them van ban thanh cong!'),
+                            SnackBar(
+                              content: Text(
+                                'Da luu van ban. Chunks: ${ingestResult.chunksIndexed}. Sections: ${ingestResult.sectionsCount}',
+                              ),
                               backgroundColor: Colors.green,
                             ),
                           );
                           clearInputs(addLawVM);
-
-                          Future.delayed(const Duration(milliseconds: 400), () {
-                            if (!mounted) {
-                              return;
-                            }
-                            Navigator.pushNamed(context, "/addContent", arguments: law.sohieu);
-                          });
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Loi khi them van ban!'),
+                            SnackBar(
+                              content: Text(
+                                !success
+                                    ? 'Loi khi luu metadata van ban!'
+                                    : ingestResult.message,
+                              ),
                               backgroundColor: Colors.red,
                             ),
                           );
@@ -239,7 +281,27 @@ class _AddLawScreenState extends State<AddLawScreen> {
     );
   }
 
-  bool validateInputs(AddLawVM lawVM) {
+  bool validateInputs(
+    AddLawVM lawVM, {
+    bool requireCompleteManual = false,
+    bool showSnackBar = true,
+  }) {
+    final hasFile = _selectedFile != null;
+    final hasManualMetadata = _hasMeaningfulManualMetadata(lawVM);
+    if (!hasFile && !hasManualMetadata) {
+      if (showSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Hay nhap metadata hoac chon file PDF/DOCX.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return false;
+    }
+    if (!requireCompleteManual) {
+      return true;
+    }
     if (sohieuController.text.trim().isEmpty ||
         tenVanBanController.text.trim().isEmpty ||
         ngayKyController.text.trim().isEmpty ||
@@ -247,15 +309,61 @@ class _AddLawScreenState extends State<AddLawScreen> {
         lawVM.selectedTrangThai == null ||
         lawVM.selectedCoQuan == null ||
         lawVM.selectedLoaiVanBan == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui long dien day du thong tin!'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (showSnackBar) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Vui long dien day du thong tin!'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return false;
     }
     return true;
+  }
+
+  bool _hasMeaningfulManualMetadata(AddLawVM lawVM) {
+    return sohieuController.text.trim().isNotEmpty ||
+        tenVanBanController.text.trim().isNotEmpty ||
+        ngayKyController.text.trim().isNotEmpty ||
+        ngayHieuLucController.text.trim().isNotEmpty ||
+        linhVucController.text.trim().isNotEmpty ||
+        lawVM.selectedCoQuan != null ||
+        lawVM.selectedLoaiVanBan != null;
+  }
+
+  Map<String, String?> _buildUploadMetadata(AddLawVM vm) {
+    final hasManual = _hasMeaningfulManualMetadata(vm);
+    final selectedCoQuan = vm.coQuanList.cast<Map<String, dynamic>?>().firstWhere(
+          (item) => item?['macoquan'] == vm.selectedCoQuan,
+          orElse: () => null,
+        );
+    final selectedLoai = vm.loaiVanBanList.cast<Map<String, dynamic>?>().firstWhere(
+          (item) => item?['maloai'] == vm.selectedLoaiVanBan,
+          orElse: () => null,
+        );
+    return {
+      'so_hieu': sohieuController.text.trim(),
+      'ten_van_ban': tenVanBanController.text.trim(),
+      'loai_van_ban': (selectedLoai?['tenloai'] ?? '').toString(),
+      'trang_thai': hasManual ? _normalizeTrangThai(vm.selectedTrangThai) : '',
+      'ngay_ban_hanh': ngayKyController.text.trim(),
+      'ngay_hieu_luc': ngayHieuLucController.text.trim(),
+      'linh_vuc': linhVucController.text.trim(),
+      'co_quan_ban_hanh': (selectedCoQuan?['tencoquan'] ?? '').toString(),
+      'uploaded_by': 'admin',
+    };
+  }
+
+  String _normalizeTrangThai(String? value) {
+    final normalized = (value ?? '').toUpperCase();
+    if (normalized.contains('HET')) {
+      return 'hetHieuLuc';
+    }
+    if (normalized.contains('CON')) {
+      return 'conHieuLuc';
+    }
+    return value?.trim() ?? '';
   }
 
   void clearInputs(AddLawVM vm) {
@@ -263,9 +371,11 @@ class _AddLawScreenState extends State<AddLawScreen> {
     tenVanBanController.clear();
     ngayKyController.clear();
     ngayHieuLucController.clear();
+    linhVucController.clear();
     setState(() {
       _ngayKy = null;
       _ngayHieuLuc = null;
+      _selectedFile = null;
     });
     vm.setSelectedTrangThai(vm.trangThaiOptions.first);
     vm.setSelectedCoQuan(null);
@@ -273,34 +383,32 @@ class _AddLawScreenState extends State<AddLawScreen> {
   }
 
   Future<void> _handleLegalFileUpload() async {
-    if (sohieuController.text.trim().isEmpty) {
+    setState(() => isUploadingLegalFile = true);
+    try {
+      final picked = await _legalIngestService.pickDocument();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _selectedFile = picked);
+      if (picked != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Da chon file ${picked.fileName}. Bam "Them van ban" de lap chi muc.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Vui long nhap so hieu truoc khi tai file.'),
-          backgroundColor: Colors.orange,
+        SnackBar(
+          content: Text('$e'),
+          backgroundColor: Colors.red,
         ),
       );
-      return;
+    } finally {
+      if (mounted) {
+        setState(() => isUploadingLegalFile = false);
+      }
     }
-
-    setState(() => isUploadingLegalFile = true);
-    final result = await _legalIngestService.pickAndUploadDocument(
-      soHieu: sohieuController.text.trim(),
-    );
-    if (!mounted) {
-      return;
-    }
-    setState(() => isUploadingLegalFile = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          result.success
-              ? 'Da ingest file ${result.fileName ?? ''}. Inserted: ${result.insertedCount}'
-              : result.message,
-        ),
-        backgroundColor: result.success ? Colors.green : Colors.red,
-      ),
-    );
   }
 }

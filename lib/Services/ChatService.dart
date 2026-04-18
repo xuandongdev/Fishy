@@ -117,6 +117,34 @@ class ChatService {
     _sessionId = null;
   }
 
+  static Future<Map<String, dynamic>> uploadSessionDocument(
+    Uint8List bytes,
+    String filename,
+  ) async {
+    if (_chatUrl.isEmpty) {
+      _useFallbackUrl();
+    }
+    try {
+      final request = http.MultipartRequest('POST', Uri.parse('$_chatUrl/upload-session-doc'));
+      if ((_sessionId ?? '').trim().isNotEmpty) {
+        request.fields['session_id'] = _sessionId!;
+      }
+      request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+      final response = await http.Response.fromStream(await request.send());
+      final payload = jsonDecode(utf8.decode(response.bodyBytes));
+      if (payload is Map<String, dynamic>) {
+        final sessionId = (payload['session_id'] ?? '').toString().trim();
+        if (sessionId.isNotEmpty) {
+          _sessionId = sessionId;
+        }
+        return payload;
+      }
+      return {'success': false, 'message': 'Phan hoi upload khong hop le.'};
+    } catch (error) {
+      return {'success': false, 'message': 'Loi tai file len chat: $error'};
+    }
+  }
+
   static Future<Map<String, dynamic>> uploadToYOLO(Uint8List bytes, String filename) async {
     if (_yoloUrl.isEmpty) {
       _useFallbackUrl();
