@@ -157,7 +157,7 @@ class LangChainAdapter:
             "chat completed | session_id=%s | route=%s | used_firecrawl=%s | source_count=%s | latency_ms=%s",
             active_session_id,
             route,
-            result.get("used_firecrawl", False),
+            False,
             len(result.get("sources", [])),
             latency_ms,
         )
@@ -226,21 +226,6 @@ class LangChainAdapter:
         )
 
         if not final_hits or evidence["insufficient_context"]:
-            fallback_result = self._run_trusted_second_pass(
-                session_id=session_id,
-                original_question=original_question,
-                effective_question=effective_question,
-                history=history,
-                query_vehicle_type=query_vehicle_type,
-                query_km=query_km,
-                intent=intent,
-                action=action,
-                is_followup=is_followup,
-                rewrite_confidence=rewrite_confidence,
-                reason=evidence["reason"] if evidence["insufficient_context"] else "no_legal_hits",
-            )
-            if fallback_result is not None:
-                return fallback_result
             return self._build_safe_legal_response(
                 retrieval=retrieval,
                 final_hits=final_hits,
@@ -278,119 +263,25 @@ class LangChainAdapter:
         )
 
         if answer_bundle.get("insufficient_context"):
-            fallback_result = self._run_trusted_second_pass(
-                session_id=session_id,
-                original_question=original_question,
+            return self._build_safe_legal_response(
+                retrieval=retrieval,
+                final_hits=final_hits,
                 effective_question=effective_question,
-                history=history,
                 query_vehicle_type=query_vehicle_type,
                 query_km=query_km,
                 intent=intent,
                 action=action,
-                is_followup=is_followup,
                 rewrite_confidence=rewrite_confidence,
-                reason=str(answer_bundle.get("reason") or "answer_insufficient"),
             )
-            if fallback_result is not None:
-                return fallback_result
 
         return {
             "success": True,
             "answer": answer_bundle["answer"],
             "sources": answer_bundle.get("sources", []),
             "used_fallback": retrieval.get("used_fallback", False),
-            "used_firecrawl": retrieval.get("firecrawl_called", False),
+            "used_firecrawl": False,
             "evaluation": self._build_evaluation_payload(
                 final_hits=final_hits,
-                candidate_hits=retrieval.get("candidate_results", []),
-                timings={
-                    "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
-                    "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
-                    "gen_time_ms": gen_time_ms,
-                },
-                detected_vehicle_type=query_vehicle_type,
-            ),
-            "debug": self._build_debug_info(retrieval, branch="legal_rag", effective_question=effective_question),
-            "meta": {
-                "used_legal_retrieval": True,
-                "source_count": len(answer_bundle.get("sources", [])),
-                "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
-                "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
-                "gen_time_ms": gen_time_ms,
-                "detected_vehicle_type": query_vehicle_type,
-                "effective_question": effective_question,
-                "query_km": query_km,
-                "intent": intent,
-                "action": action,
-                "rewrite_confidence": rewrite_confidence,
-            },
-        }
-
-    def _run_trusted_second_pass(
-        self,
-        session_id: str,
-        original_question: str,
-        effective_question: str,
-        history: List[Dict[str, str]],
-        query_vehicle_type: str,
-        query_km: Any,
-        intent: str,
-        action: str,
-        is_followup: bool,
-        rewrite_confidence: float,
-        reason: str,
-    ) -> Optional[Dict[str, Any]]:
-        logger.info("second pass fallback | session_id=%s | reason=%s", session_id, reason)
-        retrieval = self.retrieval_service.retrieve_context(
-            question=effective_question,
-            original_question=original_question,
-            effective_question=effective_question,
-            query_vehicle_type=query_vehicle_type,
-            query_km=query_km,
-            intent=intent,
-            action=action,
-            rewrite_confidence=rewrite_confidence,
-            force_trusted_fallback=True,
-            history=history,
-        )
-        fallback_hits = retrieval.get("trusted_cache_results", [])
-        if not fallback_hits:
-            return None
-
-        gen_start = time.perf_counter()
-        answer_bundle = self.answer_service.generate_answer(
-            question=original_question,
-            hits=fallback_hits,
-            history=history,
-            effective_question=effective_question,
-            debug_meta={
-                "intent": intent,
-                "action": action,
-                "vehicle_type": query_vehicle_type,
-                "query_km": query_km,
-                "is_followup": is_followup,
-                "rewrite_confidence": rewrite_confidence,
-                "topic_mismatch": retrieval.get("topic_mismatch", False),
-            },
-        )
-        gen_time_ms = round((time.perf_counter() - gen_start) * 1000, 2)
-        logger.info(
-            "second pass answer | session_id=%s | answer_insufficient=%s | reason=%s",
-            session_id,
-            answer_bundle.get("insufficient_context"),
-            answer_bundle.get("reason"),
-        )
-        if answer_bundle.get("insufficient_context"):
-            return None
-
-        return {
-            "success": True,
-            "answer": answer_bundle["answer"],
-            "sources": answer_bundle.get("sources", []),
-            "used_fallback": True,
-            "used_firecrawl": retrieval.get("firecrawl_called", False),
-            "evaluation": self._build_evaluation_payload(
-                final_hits=fallback_hits,
                 candidate_hits=retrieval.get("candidate_results", []),
                 timings={
                     "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
@@ -431,7 +322,7 @@ class LangChainAdapter:
             "answer": "Chưa đủ căn cứ trong dữ liệu retrieve được để kết luận chính xác.",
             "sources": [],
             "used_fallback": retrieval.get("used_fallback", False),
-            "used_firecrawl": retrieval.get("firecrawl_called", False),
+            "used_firecrawl": False,
             "evaluation": self._build_evaluation_payload(
                 final_hits=final_hits,
                 candidate_hits=retrieval.get("candidate_results", []),
@@ -542,12 +433,14 @@ class LangChainAdapter:
             "v4_error_reason": retrieval.get("v4_error_reason"),
             "legal_results": len(retrieval.get("legal_results", [])),
             "trusted_cache_results": len(retrieval.get("trusted_cache_results", [])),
+            "trusted_intent_match_count": retrieval.get("trusted_intent_match_count", 0),
+            "trusted_topic_mismatch": retrieval.get("trusted_topic_mismatch", False),
             "candidate_results": len(retrieval.get("candidate_results", [])),
             "final_hits": len(retrieval.get("combined_results", [])),
-            "firecrawl_called": retrieval.get("firecrawl_called", False),
-            "searched_sources_count": retrieval.get("searched_sources_count", 0),
-            "scraped_urls_count": retrieval.get("scraped_urls_count", 0),
-            "firecrawl_cached": retrieval.get("firecrawl_cached", 0),
+            "firecrawl_called": False,
+            "searched_sources_count": 0,
+            "scraped_urls_count": 0,
+            "firecrawl_cached": 0,
             "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
             "query_km": retrieval.get("query_km"),
             "intent": retrieval.get("intent"),

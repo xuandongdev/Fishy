@@ -8,7 +8,6 @@ from supabase import Client
 
 from config.settings import RAGSettings
 from services.answer_service import AnswerService
-from services.firecrawl_service import FirecrawlService
 from services.legal_query_context import (
     build_effective_legal_question,
     detect_legal_action,
@@ -16,7 +15,6 @@ from services.legal_query_context import (
     extract_km,
     normalize_legal_text,
 )
-from services.trusted_web_cache_service import TrustedWebCacheService
 
 logger = logging.getLogger("RETRIEVAL_SERVICE")
 EXACT_LEGAL_INTENTS = {"muc_phat", "can_cu_phap_ly", "tuoc_gplx", "tam_giu_phuong_tien"}
@@ -28,15 +26,11 @@ class RetrievalService:
         supabase: Client,
         embedding_model: SentenceTransformer,
         settings: RAGSettings,
-        trusted_cache_service: TrustedWebCacheService,
-        firecrawl_service: FirecrawlService,
         answer_service: AnswerService,
     ) -> None:
         self.supabase = supabase
         self.embedding_model = embedding_model
         self.settings = settings
-        self.trusted_cache_service = trusted_cache_service
-        self.firecrawl_service = firecrawl_service
         self.answer_service = answer_service
         self.rerank_model_name = getattr(self.settings, "rerank_model_name", "BAAI/bge-reranker-v2-m3")
         self.rerank_candidate_count = int(getattr(self.settings, "rerank_candidate_count", 10))
@@ -97,21 +91,6 @@ class RetrievalService:
                 "v4_error_reason": str(exc),
             }
 
-    def search_trusted_cache(
-        self,
-        question: str,
-        query_vector: List[float],
-    ) -> List[Dict[str, Any]]:
-        try:
-            return self.trusted_cache_service.search_trusted_cache(
-                question=question,
-                query_vector=query_vector,
-                limit=self.settings.rerank_final_top_k,
-            )
-        except Exception as exc:
-            logger.warning("trusted cache search failed: %s", exc)
-            return []
-
     def retrieve_context(
         self,
         question: str,
@@ -122,7 +101,6 @@ class RetrievalService:
         intent: Optional[str] = None,
         action: Optional[str] = None,
         rewrite_confidence: Optional[float] = None,
-        force_trusted_fallback: bool = False,
         history: Optional[List[Dict[str, str]]] = None,
     ) -> Dict[str, Any]:
         t0 = time.perf_counter()
@@ -207,84 +185,37 @@ class RetrievalService:
         rerank_time_ms = round((time.perf_counter() - rerank_start) * 1000, 2)
         retrieval_time_ms = round((time.perf_counter() - t0) * 1000, 2)
 
-        trusted_results: List[Dict[str, Any]] = []
-        trusted_results_before_firecrawl: List[Dict[str, Any]] = []
-        firecrawl_called = False
-        firecrawl_cached = 0
-        searched_sources_count = 0
-        scraped_urls_count = 0
         used_fallback = False
-
         fallback_reason = ""
-        should_use_fallback = force_trusted_fallback
-        if force_trusted_fallback:
-            fallback_reason = "forced_second_pass"
-        elif legal_db_unavailable:
-            should_use_fallback = True
+        if legal_db_unavailable:
+            used_fallback = True
             fallback_reason = "legal_db_unavailable"
         elif len(final_hits) < self.settings.rag_min_legal_evidence:
-            should_use_fallback = True
+            used_fallback = True
             fallback_reason = "too_few_legal_hits"
         elif topic_mismatch:
-            should_use_fallback = True
+            used_fallback = True
             fallback_reason = "topic_mismatch"
         elif query_km is not None and action == "qua_toc_do" and km_match_count == 0:
-            should_use_fallback = True
+            used_fallback = True
             fallback_reason = "missing_km_match"
 
-        trusted_above_threshold = 0
-        if should_use_fallback:
-            used_fallback = True
-            trusted_results_before_firecrawl = self.search_trusted_cache(effective_question, query_vector)
-            trusted_ready, trusted_above_threshold = self._meets_evidence_threshold(
-                hits=trusted_results_before_firecrawl,
-                min_score=self.settings.rag_trusted_score_threshold,
-                min_evidence=1,
-            )
-            logger.info(
-                "retrieval trusted cache | trusted_before=%s | above_threshold=%s | threshold=%.3f",
-                len(trusted_results_before_firecrawl),
-                trusted_above_threshold,
-                self.settings.rag_trusted_score_threshold,
-            )
-            trusted_results = trusted_results_before_firecrawl
-            if not trusted_ready and self.firecrawl_service.enabled:
-                firecrawl_called = True
-                firecrawl_result = self.firecrawl_service.fetch_and_cache(effective_question)
-                firecrawl_cached = len(firecrawl_result.get("cached_rows") or [])
-                searched_sources_count = int(firecrawl_result.get("searched_sources_count") or 0)
-                scraped_urls_count = int(firecrawl_result.get("scraped_urls_count") or 0)
-                trusted_results = self.search_trusted_cache(effective_question, query_vector)
-            logger.info(
-                "retrieval trusted cache | trusted_after=%s | firecrawl_called=%s | searched_sources_count=%s | scraped_urls_count=%s | firecrawl_cached=%s",
-                len(trusted_results),
-                firecrawl_called,
-                searched_sources_count,
-                scraped_urls_count,
-                firecrawl_cached,
-            )
-        else:
-            logger.info("retrieval trusted cache | skipped=True | reason=legal_path_sufficient")
-
         logger.info(
-            "retrieval fallback summary | legal_results=%s | trusted_before=%s | trusted_after=%s | used_fallback=%s | used_firecrawl=%s | final_fallback_reason=%s",
+            "retrieval fallback summary | legal_results=%s | used_fallback=%s | final_fallback_reason=%s",
             len(legal_results),
-            len(trusted_results_before_firecrawl),
-            len(trusted_results),
             used_fallback,
-            firecrawl_called,
-            fallback_reason,
+            fallback_reason or "none",
         )
 
         return {
             "legal_results": legal_results,
-            "trusted_cache_results": trusted_results,
+            "trusted_cache_results": [],
             "candidate_results": candidate_hits,
-            "combined_results": final_hits if not should_use_fallback else trusted_results,
-            "firecrawl_called": firecrawl_called,
-            "firecrawl_cached": firecrawl_cached,
-            "searched_sources_count": searched_sources_count,
-            "scraped_urls_count": scraped_urls_count,
+            "combined_results": final_hits,
+            "firecrawl_called": False,
+            "firecrawl_cached": 0,
+            "searched_sources_count": 0,
+            "scraped_urls_count": 0,
             "used_fallback": used_fallback,
             "legal_db_unavailable": legal_db_unavailable,
             "rpc_selected": "v4",
@@ -298,6 +229,8 @@ class RetrievalService:
             "km_match_count": km_match_count,
             "intent_match_count": intent_match_count,
             "topic_mismatch": topic_mismatch,
+            "trusted_intent_match_count": 0,
+            "trusted_topic_mismatch": False,
             "final_fallback_reason": fallback_reason,
             "original_question": original_question,
             "effective_question": effective_question,
