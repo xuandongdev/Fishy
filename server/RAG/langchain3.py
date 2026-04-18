@@ -214,7 +214,7 @@ class LegalSupabaseRetriever(BaseRetriever):
 
         query_km = self.extract_km(query)
         res = self.supabase_client.rpc(
-            "match_legal_docs_v3",
+            "match_legal_docs_v4",
             {
                 "vector_truy_van": query_vector,
                 "van_ban_truy_van": query,

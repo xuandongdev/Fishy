@@ -47,6 +47,8 @@ class FirecrawlService:
 
             content = self._normalize_content(hit.get("content") or "")
             if not content:
+                if not self.trusted_cache_service.is_allowed_url(hit["url"], searched_sources):
+                    continue
                 scraped = self.scrape_url(hit["url"])
                 scraped_urls_count += 1
                 content = self._normalize_content((scraped or {}).get("markdown") or "")
@@ -54,6 +56,8 @@ class FirecrawlService:
                     metadata = scraped.get("metadata") or {}
                     hit["title"] = metadata.get("title") or hit.get("title")
                     hit["url"] = metadata.get("sourceURL") or hit["url"]
+                    if not self.trusted_cache_service.is_allowed_url(hit["url"], searched_sources):
+                        continue
 
             if len(content) < 200:
                 continue
@@ -135,6 +139,10 @@ class FirecrawlService:
 
     def scrape_url(self, url: str) -> Optional[Dict[str, Any]]:
         if not self.enabled:
+            return None
+        allowed_sources = self.trusted_cache_service.get_enabled_sources()
+        if not self.trusted_cache_service.is_allowed_url(url, allowed_sources):
+            logger.info("firecrawl scrape skipped | reason=url_not_whitelisted | url=%s", url)
             return None
 
         payload = {

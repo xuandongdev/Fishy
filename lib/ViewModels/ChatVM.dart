@@ -38,8 +38,8 @@ class ChatViewModel extends ChangeNotifier {
       var historyNodes = messages
           .where((m) => m.text.isNotEmpty && m.imageBytes == null)
           .toList();
-      if (historyNodes.length > 5) {
-        historyNodes = historyNodes.sublist(historyNodes.length - 5);
+      if (historyNodes.length > 16) {
+        historyNodes = historyNodes.sublist(historyNodes.length - 16);
       }
 
       final history = historyNodes

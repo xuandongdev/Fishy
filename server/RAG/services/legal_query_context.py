@@ -2,109 +2,85 @@ import re
 import unicodedata
 from typing import Dict, List, Optional
 
+
 VEHICLE_TYPES = {"o_to", "xe_may", "xe_dap", "di_bo", "khac"}
+LEGAL_INTENTS = {
+    "muc_phat",
+    "can_cu_phap_ly",
+    "tuoc_gplx",
+    "tam_giu_phuong_tien",
+    "doi_tuong_ap_dung",
+    "giai_thich_chung",
+    "followup_khong_ro",
+}
 
 VEHICLE_TYPE_TO_PHRASE = {
-    "xe_may": "xe máy",
-    "o_to": "ô tô",
-    "xe_dap": "xe đạp",
-    "di_bo": "người đi bộ",
+    "xe_may": "xe may",
+    "o_to": "o to",
+    "xe_dap": "xe dap",
+    "di_bo": "nguoi di bo",
 }
 
 FOLLOWUP_PREFIXES = (
-    "vậy còn",
     "vay con",
-    "thế còn",
     "the con",
-    "thế nếu",
     "the neu",
-    "nếu vậy",
     "neu vay",
-    "còn",
     "con",
-    "nếu",
     "neu",
-    "trường hợp đó",
     "truong hop do",
-    "trường hợp này",
     "truong hop nay",
-    "trường hợp ấy",
     "truong hop ay",
-    "thế sao",
     "the sao",
-    "thì sao",
     "thi sao",
-    "vậy",
     "vay",
 )
 
 SPEED_KEYWORDS = (
-    "quá tốc độ",
     "qua toc do",
-    "vượt tốc độ",
     "vuot toc do",
-    "chạy quá",
     "chay qua",
-    "tốc độ",
     "toc do",
     "km/h",
     "km",
-    "cây",
+    "cay",
 )
 
 ACTION_PATTERNS = {
     "vuot_den_do": [
-        r"vượt đèn đỏ",
         r"vuot den do",
-        r"không chấp hành hiệu lệnh đèn tín hiệu",
         r"khong chap hanh hieu lenh den tin hieu",
-        r"đèn đỏ",
         r"den do",
     ],
     "qua_toc_do": [
-        r"quá tốc độ",
         r"qua toc do",
-        r"vượt tốc độ",
         r"vuot toc do",
-        r"chạy quá",
         r"chay qua",
-        r"tốc độ",
         r"toc do",
         r"km/h",
         r"km",
-        r"cây",
+        r"cay",
     ],
     "nong_do_con": [
-        r"nồng độ cồn",
         r"nong do con",
-        r"cồn",
-        r"bia rượu",
+        r"\bcon\b",
         r"bia ruou",
     ],
     "khong_doi_mu": [
-        r"không đội mũ",
         r"khong doi mu",
-        r"không đội mũ bảo hiểm",
         r"khong doi mu bao hiem",
-        r"mũ bảo hiểm",
         r"mu bao hiem",
     ],
     "cho_qua_nguoi": [
-        r"chở quá",
         r"cho qua",
-        r"quá số người",
         r"qua so nguoi",
-        r"chở ba",
         r"cho ba",
-        r"chở bốn",
         r"cho bon",
     ],
     "di_sai_lan": [
-        r"sai làn",
         r"sai lan",
-        r"không đúng làn",
         r"khong dung lan",
-        r"phần đường",
+        r"lan duong",
         r"phan duong",
     ],
 }
@@ -135,8 +111,8 @@ def detect_vehicle_type(query: str) -> str:
 
 
 _KM_PATTERNS = [
-    re.compile(r"(?:quá|qua|vượt|vuot|chạy|chay)?\s*(?:tốc độ|toc do)?\s*(\d+(?:[\.,]\d+)?)\s*(?:km/h|kmh|km|cây)\b"),
-    re.compile(r"(?:quá|qua|vượt|vuot)\s*(\d+(?:[\.,]\d+)?)\b"),
+    re.compile(r"(?:qua|vuot|chay)?\s*(?:toc do)?\s*(\d+(?:[\.,]\d+)?)\s*(?:km/h|kmh|km|cay)\b"),
+    re.compile(r"(?:qua|vuot)\s*(\d+(?:[\.,]\d+)?)\b"),
 ]
 
 
@@ -162,6 +138,25 @@ def detect_legal_action(query: str) -> Optional[str]:
     return None
 
 
+def detect_legal_intent(query: str) -> str:
+    q = normalize_legal_text(query)
+    if not q:
+        return "followup_khong_ro"
+    if re.search(r"\b(phat bao nhieu|muc phat|bao nhieu tien|phat sao|bi phat bao nhieu)\b", q):
+        return "muc_phat"
+    if re.search(r"\b(can cu|dieu nao|khoan nao|diem nao|nghi dinh nao|can cu phap ly)\b", q):
+        return "can_cu_phap_ly"
+    if re.search(r"\b(tuoc|giu bang|giu gplx|tuoc bang|tuoc giay phep lai xe)\b", q):
+        return "tuoc_gplx"
+    if re.search(r"\b(giu xe|tam giu xe|tam giu phuong tien|giu phuong tien)\b", q):
+        return "tam_giu_phuong_tien"
+    if re.search(r"\b(ap dung cho ai|doi tuong nao|xe nao|phuong tien nao|truong hop nao)\b", q):
+        return "doi_tuong_ap_dung"
+    if is_followup_question(q):
+        return "followup_khong_ro"
+    return "giai_thich_chung"
+
+
 def is_followup_question(query: str) -> bool:
     q = normalize_legal_text(query)
     if not q:
@@ -177,23 +172,36 @@ def is_followup_question(query: str) -> bool:
 
 
 def infer_vehicle_from_history(history: List[Dict[str, str]]) -> str:
-    for item in reversed(history or []):
-        if item.get("role") != "user":
-            continue
-        detected = detect_vehicle_type(item.get("content") or "")
-        if detected != "khac":
-            return detected
+    for preferred_role in ("user", "assistant"):
+        for item in reversed(history or []):
+            if item.get("role") != preferred_role:
+                continue
+            detected = detect_vehicle_type(item.get("content") or "")
+            if detected != "khac":
+                return detected
     return "khac"
 
 
 def infer_action_from_history(history: List[Dict[str, str]]) -> Optional[str]:
-    for item in reversed(history or []):
-        if item.get("role") != "user":
-            continue
-        action = detect_legal_action(item.get("content") or "")
-        if action:
-            return action
+    for preferred_role in ("user", "assistant"):
+        for item in reversed(history or []):
+            if item.get("role") != preferred_role:
+                continue
+            action = detect_legal_action(item.get("content") or "")
+            if action:
+                return action
     return None
+
+
+def infer_intent_from_history(history: List[Dict[str, str]]) -> str:
+    for preferred_role in ("user", "assistant"):
+        for item in reversed(history or []):
+            if item.get("role") != preferred_role:
+                continue
+            intent = detect_legal_intent(item.get("content") or "")
+            if intent != "followup_khong_ro":
+                return intent
+    return "followup_khong_ro"
 
 
 def _vehicle_phrase(vehicle_type: str) -> Optional[str]:
@@ -203,26 +211,38 @@ def _vehicle_phrase(vehicle_type: str) -> Optional[str]:
 def _action_phrase(action: Optional[str], question: str, km_value: Optional[float]) -> Optional[str]:
     normalized = normalize_legal_text(question)
     if action == "vuot_den_do":
-        return "vượt đèn đỏ"
+        return "vuot den do"
     if action == "nong_do_con":
-        return "vi phạm nồng độ cồn"
+        return "vi pham nong do con"
     if action == "khong_doi_mu":
-        return "không đội mũ bảo hiểm"
+        return "khong doi mu bao hiem"
     if action == "cho_qua_nguoi":
-        if match := re.search(r"ch[oơ]\s+(\d+)\s+nguoi", normalized):
-            return f"chở {match.group(1)} người"
-        return "chở quá số người quy định"
+        if match := re.search(r"cho\s+(\d+)\s+nguoi", normalized):
+            return f"cho {match.group(1)} nguoi"
+        return "cho qua so nguoi quy dinh"
     if action == "di_sai_lan":
-        return "đi sai làn đường"
+        return "di sai lan duong"
     if action == "qua_toc_do":
         if km_value is not None:
             km_text = int(km_value) if km_value.is_integer() else km_value
-            return f"chạy quá tốc độ {km_text} km/h"
-        return "chạy quá tốc độ"
+            return f"chay qua toc do {km_text} km/h"
+        return "chay qua toc do"
     if km_value is not None and any(keyword in normalized for keyword in SPEED_KEYWORDS):
         km_text = int(km_value) if km_value.is_integer() else km_value
-        return f"chạy quá tốc độ {km_text} km/h"
+        return f"chay qua toc do {km_text} km/h"
     return None
+
+
+def _intent_suffix(intent: str, original_question: str) -> str:
+    if intent == "muc_phat":
+        return "bi phat bao nhieu?"
+    if intent == "can_cu_phap_ly":
+        return "can cu phap ly la gi?"
+    if intent == "tuoc_gplx":
+        return "co bi tuoc gplx khong?"
+    if intent == "tam_giu_phuong_tien":
+        return "co bi tam giu phuong tien khong?"
+    return original_question.strip()
 
 
 def build_effective_legal_question(current_question: str, history: List[Dict[str, str]]) -> Dict[str, object]:
@@ -232,46 +252,60 @@ def build_effective_legal_question(current_question: str, history: List[Dict[str
     current_vehicle = detect_vehicle_type(normalized_question)
     current_query_km = extract_km(normalized_question)
     current_action = detect_legal_action(normalized_question)
+    current_intent = detect_legal_intent(normalized_question)
     followup = is_followup_question(normalized_question)
 
     inherited_vehicle = infer_vehicle_from_history(history) if (followup or current_vehicle == "khac") else "khac"
     inherited_action = infer_action_from_history(history) if (followup or current_action is None) else None
+    inherited_intent = (
+        infer_intent_from_history(history) if (followup or current_intent == "followup_khong_ro") else "followup_khong_ro"
+    )
 
     effective_vehicle = current_vehicle if current_vehicle != "khac" else inherited_vehicle
     effective_action = current_action or inherited_action
+    effective_intent = current_intent if current_intent != "followup_khong_ro" else inherited_intent
 
     has_enough_current_context = current_vehicle != "khac" and (
         current_action is not None or current_query_km is not None
     )
 
     effective_question = original_question
-    if followup or not has_enough_current_context:
+    rewrite_confidence = 0.2
+    if has_enough_current_context and not followup:
+        rewrite_confidence = 0.9
+    else:
         parts: List[str] = []
         vehicle_phrase = _vehicle_phrase(effective_vehicle)
         action_phrase = _action_phrase(effective_action, original_question, current_query_km)
 
-        if vehicle_phrase:
-            parts.append(f"Đối với {vehicle_phrase}")
-        if action_phrase:
+        if vehicle_phrase and (followup or current_vehicle == "khac"):
+            parts.append(vehicle_phrase)
+            rewrite_confidence += 0.25
+        if action_phrase and (followup or current_action is None):
             parts.append(action_phrase)
+            rewrite_confidence += 0.35
+        if effective_intent != "followup_khong_ro":
+            rewrite_confidence += 0.15
 
-        if not action_phrase and original_question:
-            cleaned = original_question.rstrip(" ?")
-            if cleaned:
-                parts.append(cleaned)
-
-        if parts:
-            effective_question = ", ".join(parts) + " bị phạt bao nhiêu?"
+        if parts and rewrite_confidence >= 0.6:
+            suffix = _intent_suffix(effective_intent, original_question)
+            if suffix == original_question.strip():
+                effective_question = f"{', '.join(parts)}; {original_question}".strip()
+            else:
+                effective_question = f"{', '.join(parts)} {suffix}".strip()
             effective_question = re.sub(r"\s+", " ", effective_question).strip()
         else:
             effective_question = original_question
+            rewrite_confidence = min(rewrite_confidence, 0.55)
 
     return {
         "original_question": original_question,
         "effective_question": effective_question,
         "vehicle_type": effective_vehicle if effective_vehicle in VEHICLE_TYPES else "khac",
         "query_km": current_query_km,
+        "intent": effective_intent if effective_intent in LEGAL_INTENTS else "followup_khong_ro",
         "action": effective_action,
         "is_followup": followup,
+        "rewrite_confidence": round(rewrite_confidence, 2),
         "normalized_question": normalized_question,
     }
