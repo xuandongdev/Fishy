@@ -1,3 +1,4 @@
+import logging
 import re
 import unicodedata
 from typing import Dict, List, Optional
@@ -46,7 +47,16 @@ SPEED_KEYWORDS = (
     "cay",
 )
 
+logger = logging.getLogger("LEGAL_QUERY_CONTEXT")
+
 ACTION_PATTERNS = {
+    "dua_xe": [
+        r"dua xe",
+        r"dua xe may",
+        r"dua moto",
+        r"co vu dua xe",
+        r"to chuc dua xe",
+    ],
     "vuot_den_do": [
         r"vuot den do",
         r"khong chap hanh hieu lenh den tin hieu",
@@ -71,11 +81,15 @@ ACTION_PATTERNS = {
         r"khong doi mu bao hiem",
         r"mu bao hiem",
     ],
-    "cho_qua_nguoi": [
+    "cho_qua_so_nguoi": [
         r"cho qua",
         r"qua so nguoi",
         r"cho ba",
         r"cho bon",
+        r"tong 3",
+        r"cho 3",
+        r"cho ba nguoi",
+        r"cho qua so nguoi",
     ],
     "di_sai_lan": [
         r"sai lan",
@@ -83,6 +97,11 @@ ACTION_PATTERNS = {
         r"lan duong",
         r"phan duong",
     ],
+}
+
+EXPLICIT_TOPIC_PATTERNS = {
+    action: [re.compile(pattern, re.I) for pattern in patterns]
+    for action, patterns in ACTION_PATTERNS.items()
 }
 
 
@@ -138,6 +157,14 @@ def detect_legal_action(query: str) -> Optional[str]:
     return None
 
 
+def detect_explicit_new_topic(query: str) -> Optional[str]:
+    q = normalize_legal_text(query)
+    for action, patterns in EXPLICIT_TOPIC_PATTERNS.items():
+        if any(pattern.search(q) for pattern in patterns):
+            return action
+    return None
+
+
 def detect_legal_intent(query: str) -> str:
     q = normalize_legal_text(query)
     if not q:
@@ -169,6 +196,27 @@ def is_followup_question(query: str) -> bool:
     if token_count <= 8 and detect_legal_action(q) is None:
         return True
     return False
+
+
+def strip_followup_prefix(query: str) -> str:
+    q = normalize_legal_text(query)
+    if not q:
+        return ""
+    stripped = q
+    changed = True
+    while changed:
+        changed = False
+        for prefix in FOLLOWUP_PREFIXES:
+            prefix_with_space = f"{prefix} "
+            if stripped.startswith(prefix_with_space):
+                stripped = stripped[len(prefix_with_space) :].strip(" ,;:-")
+                changed = True
+                break
+            if stripped == prefix:
+                stripped = ""
+                changed = True
+                break
+    return stripped.strip()
 
 
 def infer_vehicle_from_history(history: List[Dict[str, str]]) -> str:
@@ -210,13 +258,17 @@ def _vehicle_phrase(vehicle_type: str) -> Optional[str]:
 
 def _action_phrase(action: Optional[str], question: str, km_value: Optional[float]) -> Optional[str]:
     normalized = normalize_legal_text(question)
+    if action == "dua_xe":
+        return "dua xe trai phep"
     if action == "vuot_den_do":
         return "vuot den do"
     if action == "nong_do_con":
         return "vi pham nong do con"
     if action == "khong_doi_mu":
         return "khong doi mu bao hiem"
-    if action == "cho_qua_nguoi":
+    if action == "cho_qua_so_nguoi":
+        if "tong 3" in normalized:
+            return "cho qua so nguoi quy dinh"
         if match := re.search(r"cho\s+(\d+)\s+nguoi", normalized):
             return f"cho {match.group(1)} nguoi"
         return "cho qua so nguoi quy dinh"
@@ -248,12 +300,18 @@ def _intent_suffix(intent: str, original_question: str) -> str:
 def build_effective_legal_question(current_question: str, history: List[Dict[str, str]]) -> Dict[str, object]:
     original_question = (current_question or "").strip()
     normalized_question = normalize_legal_text(original_question)
+    stripped_followup_question = strip_followup_prefix(normalized_question)
 
     current_vehicle = detect_vehicle_type(normalized_question)
     current_query_km = extract_km(normalized_question)
     current_action = detect_legal_action(normalized_question)
     current_intent = detect_legal_intent(normalized_question)
     followup = is_followup_question(normalized_question)
+    explicit_new_topic_action = detect_explicit_new_topic(normalized_question) or (
+        detect_explicit_new_topic(stripped_followup_question) if stripped_followup_question else None
+    )
+    explicit_new_topic = explicit_new_topic_action is not None
+    followup_marker_only = followup and not explicit_new_topic and not stripped_followup_question
 
     inherited_vehicle = infer_vehicle_from_history(history) if (followup or current_vehicle == "khac") else "khac"
     inherited_action = infer_action_from_history(history) if (followup or current_action is None) else None
@@ -262,16 +320,24 @@ def build_effective_legal_question(current_question: str, history: List[Dict[str
     )
 
     effective_vehicle = current_vehicle if current_vehicle != "khac" else inherited_vehicle
-    effective_action = current_action or inherited_action
+    current_detected_action = explicit_new_topic_action or current_action
+    action_conflict = bool(current_detected_action and inherited_action and current_detected_action != inherited_action)
+    effective_action = current_detected_action or inherited_action
     effective_intent = current_intent if current_intent != "followup_khong_ro" else inherited_intent
+    history_rewrite_applied = False
 
-    has_enough_current_context = current_vehicle != "khac" and (
-        current_action is not None or current_query_km is not None
+    has_enough_current_context = (
+        current_vehicle != "khac" and (current_detected_action is not None or current_query_km is not None)
+    ) or (
+        current_detected_action is not None
     )
 
     effective_question = original_question
     rewrite_confidence = 0.2
-    if has_enough_current_context and not followup:
+    if explicit_new_topic and action_conflict:
+        effective_question = original_question
+        rewrite_confidence = 0.15
+    elif has_enough_current_context and (not followup or explicit_new_topic):
         rewrite_confidence = 0.9
     else:
         parts: List[str] = []
@@ -281,7 +347,7 @@ def build_effective_legal_question(current_question: str, history: List[Dict[str
         if vehicle_phrase and (followup or current_vehicle == "khac"):
             parts.append(vehicle_phrase)
             rewrite_confidence += 0.25
-        if action_phrase and (followup or current_action is None):
+        if action_phrase and (followup or current_detected_action is None):
             parts.append(action_phrase)
             rewrite_confidence += 0.35
         if effective_intent != "followup_khong_ro":
@@ -294,9 +360,28 @@ def build_effective_legal_question(current_question: str, history: List[Dict[str
             else:
                 effective_question = f"{', '.join(parts)} {suffix}".strip()
             effective_question = re.sub(r"\s+", " ", effective_question).strip()
+            history_rewrite_applied = True
         else:
             effective_question = original_question
             rewrite_confidence = min(rewrite_confidence, 0.55)
+
+    if explicit_new_topic:
+        effective_question = original_question
+        rewrite_confidence = 0.92 if not action_conflict else 0.18
+        history_rewrite_applied = False
+
+    logger.info(
+        "legal query context | current_detected_action=%s | inherited_action=%s | action_conflict=%s | followup_marker_only=%s | explicit_new_topic=%s | history_rewrite_applied=%s | original_question=%s | effective_question=%s | rewrite_confidence=%s",
+        current_detected_action,
+        inherited_action,
+        action_conflict,
+        followup_marker_only,
+        explicit_new_topic,
+        history_rewrite_applied,
+        original_question[:200],
+        effective_question[:200],
+        round(rewrite_confidence, 2),
+    )
 
     return {
         "original_question": original_question,
@@ -308,4 +393,10 @@ def build_effective_legal_question(current_question: str, history: List[Dict[str
         "is_followup": followup,
         "rewrite_confidence": round(rewrite_confidence, 2),
         "normalized_question": normalized_question,
+        "current_detected_action": current_detected_action,
+        "inherited_action": inherited_action,
+        "action_conflict": action_conflict,
+        "followup_marker_only": followup_marker_only,
+        "explicit_new_topic": explicit_new_topic,
+        "history_rewrite_applied": history_rewrite_applied,
     }

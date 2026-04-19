@@ -1,8 +1,9 @@
 import logging
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import UploadFile
 
@@ -13,6 +14,9 @@ from services.qdrant_service import QdrantService
 
 
 logger = logging.getLogger("GLOBAL_DOC_SERVICE")
+CLAUSE_RE = re.compile(r"^khoan\s+(\d+[a-z]?)\b", re.I)
+IMPLICIT_ITEM_RE = re.compile(r"^(\d+)\.\s+")
+POINT_RE = re.compile(r"^(?:diem\s+([a-zd])\b|([a-zd])\)\s+)", re.I)
 
 
 class GlobalDocService:
@@ -109,7 +113,11 @@ class GlobalDocService:
                 section_path=str(chunk.get("section_path") or ""),
                 content=str(chunk.get("content") or ""),
             )
-            final_metadata = {**legal_meta, **{k: v for k, v in merged_metadata.items() if v}}
+            final_metadata = {
+                **legal_meta,
+                **{k: v for k, v in merged_metadata.items() if v},
+                **{k: v for k, v in chunk.items() if k in {"chapter", "muc", "dieu", "khoan", "diem", "start_anchor", "end_anchor", "anchor_type"} and v},
+            }
             payload_rows.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -168,52 +176,209 @@ class GlobalDocService:
         return self.qdrant_service.activate_global_doc(file_id)
 
     def _chunk_sections(self, sections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        if not sections:
+            return []
+
         chunk_size = max(300, self.settings.session_doc_chunk_size)
         overlap = max(0, min(self.settings.session_doc_chunk_overlap, chunk_size // 3))
         chunks: List[Dict[str, Any]] = []
-
-        if not sections:
-            return []
 
         for section in sections:
             content = str(section.get("content") or "").strip()
             if not content:
                 continue
-            if len(content) <= chunk_size:
-                chunks.append(
-                    {
-                        "content": content,
-                        "section_path": section.get("section_path") or "Toan van",
-                        "page_start": section.get("page_start"),
-                        "page_end": section.get("page_end"),
-                    }
-                )
+            if section.get("dieu"):
+                chunks.extend(self._chunk_legal_section(section, chunk_size=chunk_size, overlap=overlap))
                 continue
-
-            start = 0
-            while start < len(content):
-                end = min(len(content), start + chunk_size)
-                candidate = content[start:end]
-                if end < len(content):
-                    split_candidates = [candidate.rfind("\n\n"), candidate.rfind("\n"), candidate.rfind(". ")]
-                    split_at = max(split_candidates)
-                    if split_at > int(chunk_size * 0.55):
-                        end = start + split_at + 1
-                        candidate = content[start:end]
-                piece = candidate.strip()
-                if len(piece) >= 80:
-                    chunks.append(
-                        {
-                            "content": piece,
-                            "section_path": section.get("section_path") or "Toan van",
-                            "page_start": section.get("page_start"),
-                            "page_end": section.get("page_end"),
-                        }
-                    )
-                if end >= len(content):
-                    break
-                start = max(start + 1, end - overlap)
+            chunks.extend(self._split_plain_chunk(section, chunk_size=chunk_size, overlap=overlap))
         return chunks
+
+    def _chunk_legal_section(self, section: Dict[str, Any], chunk_size: int, overlap: int) -> List[Dict[str, Any]]:
+        content = str(section.get("content") or "").strip()
+        if len(content) <= chunk_size:
+            return [self._section_chunk(section, content)]
+
+        clause_units = self._split_legal_units(
+            section=section,
+            text=content,
+            mode="khoan",
+            pattern=CLAUSE_RE,
+            anchor_type="khoan",
+        )
+        if clause_units:
+            return self._expand_legal_units(clause_units, chunk_size=chunk_size, overlap=overlap, next_mode="diem")
+
+        numbered_units = self._split_implicit_items(section=section, text=content)
+        if numbered_units:
+            return self._expand_legal_units(numbered_units, chunk_size=chunk_size, overlap=overlap, next_mode="diem")
+
+        point_units = self._split_legal_units(
+            section=section,
+            text=content,
+            mode="diem",
+            pattern=POINT_RE,
+            anchor_type="diem",
+        )
+        if point_units:
+            return self._expand_legal_units(point_units, chunk_size=chunk_size, overlap=overlap, next_mode=None)
+
+        return self._split_plain_chunk(section, chunk_size=chunk_size, overlap=overlap)
+
+    def _expand_legal_units(
+        self,
+        units: List[Dict[str, Any]],
+        chunk_size: int,
+        overlap: int,
+        next_mode: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        chunks: List[Dict[str, Any]] = []
+        for unit in units:
+            content = str(unit.get("content") or "").strip()
+            if len(content) <= chunk_size:
+                chunks.append(unit)
+                continue
+            if next_mode == "diem":
+                point_units = self._split_legal_units(
+                    section=unit,
+                    text=content,
+                    mode="diem",
+                    pattern=POINT_RE,
+                    anchor_type="diem",
+                )
+                if point_units:
+                    chunks.extend(self._expand_legal_units(point_units, chunk_size=chunk_size, overlap=overlap, next_mode=None))
+                    continue
+            chunks.extend(self._split_plain_chunk(unit, chunk_size=chunk_size, overlap=overlap))
+        return chunks
+
+    def _split_legal_units(
+        self,
+        section: Dict[str, Any],
+        text: str,
+        mode: str,
+        pattern: re.Pattern[str],
+        anchor_type: str,
+    ) -> List[Dict[str, Any]]:
+        lines = [line.strip() for line in text.splitlines()]
+        matches: List[Tuple[int, str, str]] = []
+        for index, line in enumerate(lines):
+            match = pattern.match(self._normalize_ascii(line))
+            if not match:
+                continue
+            value = next((group for group in match.groups() if group), "")
+            if not value:
+                continue
+            matches.append((index, line, value))
+
+        if len(matches) < 2:
+            return []
+
+        units: List[Dict[str, Any]] = []
+        for position, (start_index, anchor_line, anchor_value) in enumerate(matches):
+            end_index = matches[position + 1][0] if position + 1 < len(matches) else len(lines)
+            content = "\n".join(line for line in lines[start_index:end_index] if line).strip()
+            if len(content) < 20:
+                continue
+            unit = dict(section)
+            unit["content"] = content
+            unit["start_anchor"] = anchor_line
+            unit["end_anchor"] = anchor_line
+            unit["anchor_type"] = anchor_type
+            if mode == "khoan":
+                unit["khoan"] = anchor_value
+            elif mode == "diem":
+                unit["diem"] = anchor_value
+            unit["section_path"] = self._build_section_path(unit)
+            units.append(unit)
+        return units
+
+    def _split_implicit_items(self, section: Dict[str, Any], text: str) -> List[Dict[str, Any]]:
+        lines = [line.strip() for line in text.splitlines()]
+        matches: List[Tuple[int, str, str]] = []
+        for index, line in enumerate(lines):
+            normalized = self._normalize_ascii(line)
+            match = IMPLICIT_ITEM_RE.match(normalized)
+            if not match:
+                continue
+            matches.append((index, line, match.group(1)))
+
+        if len(matches) < 2:
+            return []
+
+        units: List[Dict[str, Any]] = []
+        for position, (start_index, anchor_line, anchor_value) in enumerate(matches):
+            end_index = matches[position + 1][0] if position + 1 < len(matches) else len(lines)
+            content = "\n".join(line for line in lines[start_index:end_index] if line).strip()
+            if len(content) < 20:
+                continue
+            unit = dict(section)
+            unit["content"] = content
+            unit["khoan"] = unit.get("khoan") or anchor_value
+            unit["start_anchor"] = anchor_line
+            unit["end_anchor"] = anchor_line
+            unit["anchor_type"] = "khoan"
+            unit["section_path"] = self._build_section_path(unit)
+            units.append(unit)
+        return units
+
+    def _split_plain_chunk(self, section: Dict[str, Any], chunk_size: int, overlap: int) -> List[Dict[str, Any]]:
+        content = str(section.get("content") or "").strip()
+        if not content:
+            return []
+        if len(content) <= chunk_size:
+            return [self._section_chunk(section, content)]
+
+        chunks: List[Dict[str, Any]] = []
+        start = 0
+        while start < len(content):
+            end = min(len(content), start + chunk_size)
+            candidate = content[start:end]
+            if end < len(content):
+                split_candidates = [candidate.rfind("\n\n"), candidate.rfind("\n"), candidate.rfind(". ")]
+                split_at = max(split_candidates)
+                if split_at > int(chunk_size * 0.55):
+                    end = start + split_at + 1
+                    candidate = content[start:end]
+            piece = candidate.strip()
+            if len(piece) >= 80:
+                chunk = self._section_chunk(section, piece)
+                chunk["anchor_type"] = chunk.get("anchor_type") or "token_split"
+                chunks.append(chunk)
+            if end >= len(content):
+                break
+            start = max(start + 1, end - overlap)
+        return chunks
+
+    def _section_chunk(self, section: Dict[str, Any], content: str) -> Dict[str, Any]:
+        chunk = {
+            "content": content,
+            "section_path": section.get("section_path") or "Toan van",
+            "page_start": section.get("page_start"),
+            "page_end": section.get("page_end"),
+            "chapter": section.get("chapter"),
+            "muc": section.get("muc"),
+            "dieu": section.get("dieu"),
+            "khoan": section.get("khoan"),
+            "diem": section.get("diem"),
+            "start_anchor": section.get("start_anchor"),
+            "end_anchor": section.get("end_anchor"),
+            "anchor_type": section.get("anchor_type"),
+        }
+        return chunk
+
+    def _build_section_path(self, section: Dict[str, Any]) -> str:
+        parts = []
+        if section.get("chapter"):
+            parts.append(str(section["chapter"]))
+        if section.get("muc"):
+            parts.append(str(section["muc"]))
+        if section.get("dieu"):
+            parts.append(f"Dieu {section['dieu']}")
+        if section.get("khoan"):
+            parts.append(f"Khoan {section['khoan']}")
+        if section.get("diem"):
+            parts.append(f"Diem {section['diem']}")
+        return " > ".join(parts) if parts else str(section.get("section_path") or "Toan van")
 
     def _build_metadata_only_chunk(self, metadata: Dict[str, Optional[str]]) -> Dict[str, Any]:
         lines = []
@@ -238,6 +403,9 @@ class GlobalDocService:
             "section_path": "Thong tin tong quan",
             "page_start": None,
             "page_end": None,
+            "anchor_type": "metadata",
+            "start_anchor": "Thong tin tong quan",
+            "end_anchor": "Thong tin tong quan",
         }
 
     def _normalize_manual_metadata(
@@ -285,35 +453,40 @@ class GlobalDocService:
         content: str,
     ) -> Dict[str, Optional[str]]:
         probe = " ".join(part for part in [title, filename, section_path, content[:1200]] if part)
-        normalized = probe.lower()
+        normalized = self._normalize_ascii(probe)
+        normalized_path = self._normalize_ascii(section_path)
 
         so_hieu_match = re.search(r"\b\d{1,4}/\d{4}(?:/[a-z0-9\-]+)?\b", normalized, re.I)
-        chapter_match = re.search(r"(chương\s+[ivxlcdm0-9]+)", section_path, re.I)
-        muc_match = re.search(r"(mục\s+[0-9ivxlcdm]+)", section_path, re.I)
-        dieu_match = re.search(r"(điều|dieu)\s+(\d+[a-z]?)", section_path, re.I)
-        khoan_match = re.search(r"(khoản|khoan)\s+(\d+[a-z]?)", probe, re.I)
-        diem_match = re.search(r"(điểm|diem)\s+([a-z0-9]+)", probe, re.I)
+        chapter_match = re.search(r"(chuong\s+[ivxlcdm0-9]+)", normalized_path, re.I)
+        muc_match = re.search(r"(muc\s+[0-9ivxlcdm]+)", normalized_path, re.I)
+        dieu_match = re.search(r"^dieu\s+(\d+[a-z]?)", normalized_path.split(" > ")[-1], re.I)
+        if not dieu_match:
+            dieu_match = re.search(r"\bdieu\s+(\d+[a-z]?)", normalized, re.I)
+        khoan_match = re.search(r"\bkhoan\s+(\d+[a-z]?)\b", normalized, re.I)
+        diem_match = re.search(r"\bdiem\s+([a-zd])\b", normalized, re.I)
 
         loai_van_ban = None
-        for candidate in ["nghị định", "nghi dinh", "luật", "luat", "thông tư", "thong tu", "quyết định", "quyet dinh"]:
+        for candidate, canonical in {
+            "nghi dinh": "nghi dinh",
+            "luat": "luat",
+            "thong tu": "thong tu",
+            "quyet dinh": "quyet dinh",
+        }.items():
             if candidate in normalized:
-                loai_van_ban = candidate
+                loai_van_ban = canonical
                 break
-        if loai_van_ban in {"nghi dinh"}:
-            loai_van_ban = "nghị định"
-        if loai_van_ban in {"luat"}:
-            loai_van_ban = "luật"
-        if loai_van_ban in {"thong tu"}:
-            loai_van_ban = "thông tư"
-        if loai_van_ban in {"quyet dinh"}:
-            loai_van_ban = "quyết định"
 
         return {
             "so_hieu": so_hieu_match.group(0).upper() if so_hieu_match else None,
             "loai_van_ban": loai_van_ban,
-            "chapter": chapter_match.group(1) if chapter_match else None,
-            "muc": muc_match.group(1) if muc_match else None,
-            "dieu": dieu_match.group(2) if dieu_match else None,
-            "khoan": khoan_match.group(2) if khoan_match else None,
-            "diem": diem_match.group(2) if diem_match else None,
+            "chapter": chapter_match.group(1).title() if chapter_match else None,
+            "muc": muc_match.group(1).title() if muc_match else None,
+            "dieu": dieu_match.group(1) if dieu_match else None,
+            "khoan": khoan_match.group(1) if khoan_match else None,
+            "diem": diem_match.group(1) if diem_match else None,
         }
+
+    def _normalize_ascii(self, text: str) -> str:
+        normalized = unicodedata.normalize("NFD", (text or "").strip().lower())
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn")
+        return normalized.replace("đ", "d")

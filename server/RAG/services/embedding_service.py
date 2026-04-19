@@ -51,6 +51,13 @@ class EmbeddingService:
     def generate_passage_embeddings(self, texts: List[str]) -> List[List[float]]:
         return self.generate_embeddings(texts, prefix="passage: ")
 
+    def generate_rela_embedding(self, canonical_action: str, aliases: List[str]) -> Optional[List[float]]:
+        alias_text = ", ".join(alias.strip() for alias in aliases if alias and alias.strip())
+        if not canonical_action.strip() and not alias_text:
+            return None
+        blended = " ".join(part for part in [canonical_action.strip(), alias_text] if part).strip()
+        return self.generate_passage_embedding(blended)
+
     @property
     def vector_size(self) -> int:
         if self.embedding_model is not None:

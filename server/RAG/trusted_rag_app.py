@@ -18,12 +18,10 @@ from services.answer_service import AnswerService
 from services.conversation_manager import ConversationManager
 from services.document_parser_service import DocumentParserService
 from services.embedding_service import EmbeddingService
-from services.firecrawl_service import FirecrawlService
 from services.global_doc_service import GlobalDocService
 from services.qdrant_service import QdrantService
 from services.retrieval_service import RetrievalService
 from services.session_doc_service import SessionDocService
-from services.trusted_web_cache_service import TrustedWebCacheService
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s | [%(levelname)s] | %(message)s")
@@ -34,8 +32,6 @@ supabase = create_client(settings.supabase_url, settings.supabase_service_role_k
 embedding_model = SentenceTransformer(settings.embedding_model_name)
 answer_service = AnswerService(settings)
 embedding_service = EmbeddingService(settings, embedding_model=embedding_model)
-trusted_cache_service = TrustedWebCacheService(supabase, settings)
-firecrawl_service = FirecrawlService(settings, trusted_cache_service, embedding_service)
 document_parser_service = DocumentParserService()
 qdrant_service = QdrantService(settings, vector_size=embedding_service.vector_size)
 session_doc_service = SessionDocService(
@@ -54,8 +50,6 @@ retrieval_service = RetrievalService(
     supabase=supabase,
     embedding_model=embedding_model,
     settings=settings,
-    trusted_cache_service=trusted_cache_service,
-    firecrawl_service=firecrawl_service,
     session_doc_service=session_doc_service,
     global_doc_service=global_doc_service,
     answer_service=answer_service,

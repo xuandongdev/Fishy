@@ -14,15 +14,10 @@ class RAGSettings:
     openai_api_key: str
     embedding_model_name: str
     answer_model_name: str
-    firecrawl_api_key: str
+    classifier_model_name: str
+    classifier_timeout_seconds: float
     rag_legal_score_threshold: float
-    rag_trusted_score_threshold: float
     rag_min_legal_evidence: int
-    rag_min_trusted_evidence: int
-    firecrawl_timeout_ms: int
-    trusted_web_search_limit: int
-    trusted_web_max_scrapes: int
-    trusted_web_max_sources: int
     qdrant_url: str
     qdrant_api_key: str
     qdrant_collection_session_docs: str
@@ -50,15 +45,10 @@ class RAGSettings:
                 os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-large"),
             ).strip(),
             answer_model_name=os.getenv("ANSWER_MODEL", "gpt-4o-mini").strip(),
-            firecrawl_api_key=os.getenv("FIRECRAWL_API_KEY", "").strip(),
+            classifier_model_name=os.getenv("CLASSIFIER_MODEL", "gpt-4.1-nano").strip(),
+            classifier_timeout_seconds=float(os.getenv("CLASSIFIER_TIMEOUT_SECONDS", "2.5")),
             rag_legal_score_threshold=float(os.getenv("RAG_LEGAL_SCORE_THRESHOLD", "0.45")),
-            rag_trusted_score_threshold=float(os.getenv("RAG_TRUSTED_SCORE_THRESHOLD", "0.38")),
             rag_min_legal_evidence=int(os.getenv("RAG_MIN_LEGAL_EVIDENCE", "2")),
-            rag_min_trusted_evidence=int(os.getenv("RAG_MIN_TRUSTED_EVIDENCE", "1")),
-            firecrawl_timeout_ms=int(os.getenv("FIRECRAWL_TIMEOUT_MS", "45000")),
-            trusted_web_search_limit=int(os.getenv("TRUSTED_WEB_SEARCH_LIMIT", "3")),
-            trusted_web_max_scrapes=int(os.getenv("TRUSTED_WEB_MAX_SCRAPES", "3")),
-            trusted_web_max_sources=int(os.getenv("TRUSTED_WEB_MAX_SOURCES", "5")),
             qdrant_url=os.getenv("QDRANT_URL", os.getenv("QDRANT_ENDPOINT", "")).strip(),
             qdrant_api_key=os.getenv("QDRANT_API_KEY", os.getenv("QDRANT_KEY", "")).strip(),
             qdrant_collection_session_docs=os.getenv("QDRANT_COLLECTION_SESSION_DOCS", "session_docs").strip(),
@@ -83,7 +73,3 @@ class RAGSettings:
     @property
     def min_legal_evidence(self) -> int:
         return self.rag_min_legal_evidence
-
-    @property
-    def trusted_threshold(self) -> float:
-        return self.rag_trusted_score_threshold

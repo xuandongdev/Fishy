@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from config.settings import RAGSettings
 from prompts.answer_prompts import ANSWER_SYSTEM_PROMPT
+from services.source_formatter import format_user_facing_source
 
 logger = logging.getLogger("ANSWER_SERVICE")
 
@@ -96,8 +97,7 @@ class AnswerService:
             context_blocks.append(self._build_context_block(index, item))
             sources.append(
                 {
-                    "type": item.get("source_type"),
-                    "label": item.get("label"),
+                    "label": self._format_source_label(item),
                     "url": item.get("url"),
                     "ten_van_ban": item.get("ten_van_ban") or item.get("title"),
                     "so_hieu": item.get("so_hieu"),
@@ -284,7 +284,7 @@ class AnswerService:
         max_km = item.get("max_km")
         km_match = item.get("km_phu_hop")
         return (
-            f"[NGUON_{index}] [{item.get('source_type')}] {item.get('label')}\n"
+            f"[NGUON_{index}] {self._format_source_label(item)}\n"
             f"URL: {item.get('url') or 'null'}\n"
             f"HybridScore: {hybrid_score}\n"
             f"RerankScore: {final_score}\n"
@@ -301,6 +301,9 @@ class AnswerService:
             f"KmPhuHop: {km_match}\n"
             f"Noi dung: {item.get('content')}"
         )
+
+    def _format_source_label(self, item: Dict[str, Any]) -> str:
+        return format_user_facing_source(item)
 
     def _history_text(self, history: List[Dict[str, str]]) -> str:
         turns: List[str] = []
