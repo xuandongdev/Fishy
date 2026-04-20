@@ -7,23 +7,41 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../Configs/ServerConfig.dart';
 
+class PickedLegalDocument {
+  final String fileName;
+  final Uint8List fileBytes;
+
+  const PickedLegalDocument({
+    required this.fileName,
+    required this.fileBytes,
+  });
+}
+
 class LegalIngestResult {
   final bool success;
   final String message;
   final int insertedCount;
+  final int chunksIndexed;
+  final int sectionsCount;
   final String? fileName;
+  final String? title;
+  final String? chunkingMode;
 
   const LegalIngestResult({
     required this.success,
     required this.message,
     this.insertedCount = 0,
+    this.chunksIndexed = 0,
+    this.sectionsCount = 0,
     this.fileName,
+    this.title,
+    this.chunkingMode,
   });
 }
 
 class LegalIngestService {
   static const List<String> _allowedExtensions = ['pdf', 'docx', 'txt'];
-  static String _legalIngestUrl = '';
+  static String _ragUrl = '';
 
   static Future<void> initializeApiUrl() async {
     try {
@@ -31,33 +49,23 @@ class LegalIngestService {
       final response = await supabase
           .from('app_config')
           .select('key, value')
-          .eq('key', 'legal_ingest_url')
+          .eq('key', 'rag_url')
           .maybeSingle();
       final value = (response?['value'] ?? '').toString().replaceAll(RegExp(r'/$'), '');
-      _legalIngestUrl = value.isNotEmpty ? value : ServerConfig.legalIngestBaseUrl;
+      _ragUrl = value.isNotEmpty ? value : ServerConfig.ragBaseUrl;
     } catch (_) {
-      _legalIngestUrl = ServerConfig.legalIngestBaseUrl;
+      _ragUrl = ServerConfig.ragBaseUrl;
     }
   }
 
   String get _baseUrl {
-    if (_legalIngestUrl.isEmpty) {
-      _legalIngestUrl = ServerConfig.legalIngestBaseUrl;
+    if (_ragUrl.isEmpty) {
+      _ragUrl = ServerConfig.ragBaseUrl;
     }
-    return _legalIngestUrl;
+    return _ragUrl;
   }
 
-  Future<LegalIngestResult> pickAndUploadDocument({
-    required String soHieu,
-  }) async {
-    final normalizedSoHieu = soHieu.trim();
-    if (normalizedSoHieu.isEmpty) {
-      return const LegalIngestResult(
-        success: false,
-        message: 'Vui long nhap so hieu truoc khi tai file.',
-      );
-    }
-
+  Future<PickedLegalDocument?> pickDocument() async {
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: _allowedExtensions,
@@ -65,46 +73,46 @@ class LegalIngestService {
     );
 
     if (picked == null || picked.files.isEmpty) {
-      return const LegalIngestResult(
-        success: false,
-        message: 'Chua chon file de tai len.',
-      );
+      return null;
     }
 
     final file = picked.files.first;
     if (file.bytes == null || file.bytes!.isEmpty) {
-      return LegalIngestResult(
-        success: false,
-        message: 'Khong doc duoc noi dung file ${file.name}.',
-        fileName: file.name,
-      );
+      throw Exception('Khong doc duoc noi dung file ${file.name}.');
     }
 
-    return uploadDocument(
-      soHieu: normalizedSoHieu,
+    return PickedLegalDocument(
       fileName: file.name,
       fileBytes: file.bytes!,
     );
   }
 
-  Future<LegalIngestResult> uploadDocument({
-    required String soHieu,
-    required String fileName,
-    required Uint8List fileBytes,
+  Future<LegalIngestResult> uploadGlobalDoc({
+    Map<String, String?> metadata = const {},
+    PickedLegalDocument? pickedFile,
   }) async {
     try {
       final request = http.MultipartRequest(
         'POST',
-        Uri.parse('$_baseUrl/api/legal-documents/ingest'),
+        Uri.parse('$_baseUrl/upload-global-doc'),
       );
-      request.fields['so_hieu'] = soHieu.trim();
-      request.files.add(
-        http.MultipartFile.fromBytes(
-          'file',
-          fileBytes,
-          filename: fileName,
-        ),
-      );
+
+      for (final entry in metadata.entries) {
+        final value = (entry.value ?? '').trim();
+        if (value.isNotEmpty) {
+          request.fields[entry.key] = value;
+        }
+      }
+      request.fields.putIfAbsent('uploaded_by', () => 'admin');
+      if (pickedFile != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'file',
+            pickedFile.fileBytes,
+            filename: pickedFile.fileName,
+          ),
+        );
+      }
 
       final streamedResponse = await request.send();
       final response = await http.Response.fromStream(streamedResponse);
@@ -113,12 +121,16 @@ class LegalIngestService {
           ? decoded
           : <String, dynamic>{};
 
-      if (response.statusCode == 200 && payload['success'] == true) {
+      if ((response.statusCode == 200 || response.statusCode == 201) && payload['success'] == true) {
         return LegalIngestResult(
           success: true,
-          message: 'Tai file va insert du lieu thanh cong.',
+          message: payload['message']?.toString() ?? 'Tai lieu da duoc lap chi muc thanh cong.',
           insertedCount: (payload['inserted_count'] ?? 0) as int,
-          fileName: payload['file_name']?.toString() ?? fileName,
+          chunksIndexed: (payload['chunks_indexed'] ?? 0) as int,
+          sectionsCount: (payload['sections_count'] ?? 0) as int,
+          fileName: payload['filename']?.toString() ?? pickedFile?.fileName,
+          title: payload['title']?.toString() ?? payload['ten_van_ban']?.toString() ?? metadata['ten_van_ban']?.trim(),
+          chunkingMode: payload['chunking_mode']?.toString(),
         );
       }
 
@@ -126,14 +138,14 @@ class LegalIngestService {
         success: false,
         message: payload['detail']?.toString() ??
             payload['error']?.toString() ??
-            'Legal ingest loi (${response.statusCode}).',
-        fileName: fileName,
+            'Global doc upload loi (${response.statusCode}).',
+        fileName: pickedFile?.fileName,
       );
     } catch (e) {
       return LegalIngestResult(
         success: false,
-        message: 'Khong the ket noi legal_ingest: $e',
-        fileName: fileName,
+        message: 'Khong the ket noi RAG upload global doc: $e',
+        fileName: pickedFile?.fileName,
       );
     }
   }

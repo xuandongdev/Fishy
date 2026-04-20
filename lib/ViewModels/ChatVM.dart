@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -38,8 +39,8 @@ class ChatViewModel extends ChangeNotifier {
       var historyNodes = messages
           .where((m) => m.text.isNotEmpty && m.imageBytes == null)
           .toList();
-      if (historyNodes.length > 5) {
-        historyNodes = historyNodes.sublist(historyNodes.length - 5);
+      if (historyNodes.length > 16) {
+        historyNodes = historyNodes.sublist(historyNodes.length - 16);
       }
 
       final history = historyNodes
@@ -98,6 +99,39 @@ class ChatViewModel extends ChangeNotifier {
       await _saveChatHistory('(GỬI ẢNH)', yoloRes.summaryText);
     } catch (e) {
       messages.add(ChatMessage(text: 'Lỗi: $e', isUser: false));
+    } finally {
+      setTyping(false);
+      notifyListeners();
+    }
+  }
+
+  Future<void> uploadSessionDocument() async {
+    setTyping(true);
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['pdf', 'docx'],
+        withData: true,
+      );
+      if (picked == null || picked.files.isEmpty) {
+        return;
+      }
+      final file = picked.files.first;
+      if (file.bytes == null || file.bytes!.isEmpty) {
+        messages.add(ChatMessage(text: 'Khong doc duoc noi dung file ${file.name}.', isUser: false));
+        return;
+      }
+
+      messages.add(ChatMessage(text: '[Tai lieu] ${file.name}', isUser: true));
+      final payload = await ChatService.uploadSessionDocument(file.bytes!, file.name);
+      final success = payload['success'] == true;
+      final message = success
+          ? (payload['message']?.toString() ??
+              'Da tai len ${payload['filename'] ?? file.name}. Chunks: ${payload['chunks_indexed'] ?? 0}')
+          : (payload['detail']?.toString() ?? payload['message']?.toString() ?? 'Upload tai lieu that bai.');
+      messages.add(ChatMessage(text: message, isUser: false));
+    } catch (e) {
+      messages.add(ChatMessage(text: 'Lỗi tải tài liệu: $e', isUser: false));
     } finally {
       setTyping(false);
       notifyListeners();
