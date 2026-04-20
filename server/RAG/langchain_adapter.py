@@ -47,6 +47,7 @@ LEGAL_KEYWORDS = (
     "giu xe",
     "tam giu",
     "can cu",
+    "bang lai"
 )
 
 FOLLOWUP_MARKERS = (
@@ -925,6 +926,9 @@ class LangChainAdapter:
         elif recent_legal_context and strong_legal_signal:
             reroute_to_legal = True
             reason = "recent_legal_context_with_legal_signal"
+        elif strong_legal_signal:
+            reroute_to_legal = True
+            reason = "strong_legal_signal_in_general"
 
         triggered = reroute_to_legal or strong_legal_signal
         if not reason and strong_legal_signal:
@@ -936,7 +940,7 @@ class LangChainAdapter:
             "reason": reason or "none",
             "strong_legal_signal": strong_legal_signal,
         }
-
+        
     def _heuristic_legal_classifier(
         self,
         question: str,

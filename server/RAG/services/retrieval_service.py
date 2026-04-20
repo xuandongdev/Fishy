@@ -235,13 +235,30 @@ class RetrievalService:
             min_evidence=self.settings.rag_min_legal_evidence,
         )
         km_match_count = sum(1 for item in legal_results if item.get("km_phu_hop") is True)
-        intent_match_count = self._intent_match_count(
-            hits=legal_results,
-            query_vehicle_type=query_vehicle_type,
-            action=action,
-            query_km=query_km,
+        generic_legal_query = (
+            query_vehicle_type == "khac"
+            and not action
+            and query_km is None
+            and not exact_legal_query
         )
-        topic_mismatch = bool(legal_results) and intent_match_count == 0
+
+        if generic_legal_query:
+            intent_match_count, topic_mismatch = self._evaluate_trusted_hits(
+                question=effective_question,
+                hits=legal_results,
+                query_vehicle_type=query_vehicle_type,
+                intent=intent,
+                action=action,
+                query_km=query_km,
+            )
+        else:
+            intent_match_count = self._intent_match_count(
+                hits=legal_results,
+                query_vehicle_type=query_vehicle_type,
+                action=action,
+                query_km=query_km,
+            )
+            topic_mismatch = bool(legal_results) and intent_match_count == 0
         logger.info(
             "retrieval legal | results=%s | above_threshold=%s | km_match_hits=%s | intent_match=%s | topic_mismatch=%s",
             len(legal_results),
@@ -485,7 +502,7 @@ class RetrievalService:
 
         fetched: Dict[str, Dict[str, Any]] = {}
         select_map = {
-            "noidung": "sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu,duong_dan_phan_cap",
+            "noidung": "sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu",
             "noidung2": "sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu,section_path,ten_van_ban,source_file_name",
         }
         for table_name, unresolved in unresolved_by_table.items():
