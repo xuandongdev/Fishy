@@ -14,7 +14,6 @@ _INTERNAL_LABELS = {
     "session_docs",
     "user_upload",
     "source_type",
-    "qdrant",
 }
 
 
@@ -58,7 +57,7 @@ def format_legal_source(
     return f"{prefix}{body}" if prefix else body
 
 
-def format_qdrant_source(payload: Dict[str, Any]) -> str:
+def format_uploaded_source(payload: Dict[str, Any]) -> str:
     return format_legal_source(
         diem=payload.get("diem"),
         khoan=payload.get("khoan"),
@@ -97,7 +96,9 @@ def format_db_source(row: Dict[str, Any], ancestors: Optional[Iterable[Dict[str,
 def format_user_facing_source(item: Dict[str, Any]) -> str:
     source_type = str(item.get("source_type") or "").strip().lower()
     if source_type == "admin_upload":
-        return format_qdrant_source(item)
+        return format_uploaded_source(item)
+    if source_type == "user_upload":
+        return format_uploaded_source(item)
     if source_type == "legal_db":
         return format_db_source(item, ancestors=item.get("ancestor_nodes") or [])
 

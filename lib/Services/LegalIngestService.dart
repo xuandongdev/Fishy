@@ -40,7 +40,7 @@ class LegalIngestResult {
 }
 
 class LegalIngestService {
-  static const List<String> _allowedExtensions = ['pdf', 'docx'];
+  static const List<String> _allowedExtensions = ['pdf', 'docx', 'txt'];
   static String _ragUrl = '';
 
   static Future<void> initializeApiUrl() async {
@@ -125,6 +125,7 @@ class LegalIngestService {
         return LegalIngestResult(
           success: true,
           message: payload['message']?.toString() ?? 'Tai lieu da duoc lap chi muc thanh cong.',
+          insertedCount: (payload['inserted_count'] ?? 0) as int,
           chunksIndexed: (payload['chunks_indexed'] ?? 0) as int,
           sectionsCount: (payload['sections_count'] ?? 0) as int,
           fileName: payload['filename']?.toString() ?? pickedFile?.fileName,

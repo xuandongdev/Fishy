@@ -1,5 +1,4 @@
 import logging
-import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -8,7 +7,6 @@ from pydantic import BaseModel
 from langchain_adapter import LangChainAdapter
 from services.global_doc_service import GlobalDocService
 from services.retrieval_service import RetrievalService
-from services.session_doc_service import SessionDocService
 
 logger = logging.getLogger("CHAT_ROUTER")
 
@@ -22,7 +20,6 @@ class ChatAskRequest(BaseModel):
 def create_chat_router(
     retrieval_service: RetrievalService,
     langchain_adapter: Optional[LangChainAdapter] = None,
-    session_doc_service: Optional[SessionDocService] = None,
     global_doc_service: Optional[GlobalDocService] = None,
 ) -> APIRouter:
     router = APIRouter()
@@ -39,7 +36,7 @@ def create_chat_router(
             question=req.question,
             original_question=req.question,
             effective_question=req.question,
-            session_id=req.session_id,
+            session_id=req.session_id,  # giu lai cho chat/history, khong dung cho session docs
             history=req.history or [],
         )
         final_hits = retrieval.get("combined_results", [])
@@ -64,9 +61,9 @@ def create_chat_router(
                 "used_global_docs": retrieval.get("used_global_docs", False),
                 "global_doc_hits": retrieval.get("global_doc_hits", 0),
                 "global_doc_top_score": retrieval.get("global_doc_top_score", 0.0),
-                "used_session_docs": retrieval.get("used_session_docs", False),
-                "session_doc_hits": retrieval.get("session_doc_hits", 0),
-                "session_doc_source_count": retrieval.get("session_doc_source_count", 0),
+                "used_session_docs": False,
+                "session_doc_hits": 0,
+                "session_doc_source_count": 0,
                 "legal_results": len(retrieval["legal_results"]),
                 "candidate_results": len(retrieval["candidate_results"]),
                 "final_hits": len(retrieval["combined_results"]),
@@ -77,7 +74,7 @@ def create_chat_router(
             "meta": {
                 "used_legal_retrieval": True,
                 "used_global_docs": retrieval.get("used_global_docs", False),
-                "used_session_docs": retrieval.get("used_session_docs", False),
+                "used_session_docs": False,
                 "source_count": len(answer_bundle["sources"]),
                 "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
                 "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
@@ -95,35 +92,6 @@ def create_chat_router(
     @router.post("/chat")
     async def ask_question_alias(req: ChatAskRequest) -> Dict[str, Any]:
         return await handle_question(req)
-
-    @router.post("/upload-session-doc")
-    async def upload_session_doc(
-        session_id: Optional[str] = Form(default=None),
-        file: UploadFile = File(...),
-    ) -> Dict[str, Any]:
-        if session_doc_service is None:
-            raise HTTPException(status_code=503, detail="Session document upload chua duoc khoi tao.")
-
-        file_name = (file.filename or "").strip()
-        if not file_name:
-            raise HTTPException(status_code=400, detail="Thieu ten file upload.")
-        lowered = file_name.lower()
-        if not (lowered.endswith(".pdf") or lowered.endswith(".docx")):
-            raise HTTPException(status_code=400, detail="Chi ho tro file .pdf hoac .docx")
-
-        file_bytes = await file.read()
-        if not file_bytes:
-            raise HTTPException(status_code=400, detail="File upload dang rong")
-
-        active_session_id = (session_id or "").strip() or str(uuid.uuid4())
-        try:
-            result = session_doc_service.upload_session_document(active_session_id, file, file_bytes)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.exception("upload session doc exception")
-            raise HTTPException(status_code=500, detail=f"Khong the lap chi muc file upload: {exc}") from exc
-        return result
 
     @router.post("/upload-global-doc")
     async def upload_global_doc(
@@ -147,8 +115,8 @@ def create_chat_router(
             if not file_name:
                 raise HTTPException(status_code=400, detail="Thieu ten file upload.")
             lowered = file_name.lower()
-            if not (lowered.endswith(".pdf") or lowered.endswith(".docx")):
-                raise HTTPException(status_code=400, detail="Chi ho tro file .pdf hoac .docx")
+            if not (lowered.endswith(".pdf") or lowered.endswith(".docx") or lowered.endswith(".txt")):
+                raise HTTPException(status_code=400, detail="Chi ho tro file .pdf, .docx hoac .txt")
             file_bytes = await file.read()
             if not file_bytes:
                 raise HTTPException(status_code=400, detail="File upload dang rong")

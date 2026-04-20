@@ -16,10 +16,7 @@ from services.legal_query_context import (
     extract_km,
     normalize_legal_text,
 )
-from services.session_doc_service import SessionDocService
-from services.source_formatter import format_db_source
-
-
+from services.source_formatter import format_db_source, format_user_facing_source
 logger = logging.getLogger("RETRIEVAL_SERVICE")
 EXACT_LEGAL_INTENTS = {"muc_phat", "can_cu_phap_ly", "tuoc_gplx", "tam_giu_phuong_tien"}
 
@@ -30,14 +27,12 @@ class RetrievalService:
         supabase: Client,
         embedding_model: SentenceTransformer,
         settings: RAGSettings,
-        session_doc_service: SessionDocService,
         global_doc_service: GlobalDocService,
         answer_service: AnswerService,
     ) -> None:
         self.supabase = supabase
         self.embedding_model = embedding_model
         self.settings = settings
-        self.session_doc_service = session_doc_service
         self.global_doc_service = global_doc_service
         self.answer_service = answer_service
         self.rerank_model_name = getattr(self.settings, "rerank_model_name", "BAAI/bge-reranker-v2-m3")
@@ -56,7 +51,13 @@ class RetrievalService:
         return extract_km(query)
 
     def has_session_docs(self, session_id: Optional[str]) -> bool:
-        return False
+        if not session_id:
+            return False
+        try:
+            return self.session_doc_service.has_session_docs(session_id)
+        except Exception as exc:
+            logger.warning("session doc presence check failed | reason=%s", exc)
+            return False
 
     def has_global_docs(self) -> bool:
         try:
@@ -71,7 +72,10 @@ class RetrievalService:
         query_vector: List[float],
         query_km: Optional[float] = None,
         query_vehicle_type: str = "khac",
+        session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
+        _ = session_id  # giu tham so de khong vo interface cu, nhung khong dung session docs nua
+
         if query_km is None:
             query_km = self.extract_km(question)
         if query_vehicle_type == "khac":
@@ -86,10 +90,11 @@ class RetrievalService:
         }
 
         try:
-            response = self.supabase.rpc("match_legal_docs_v4", rpc_payload).execute()
+            response = self.supabase.rpc(self.settings.legal_retrieval_rpc_name, rpc_payload).execute()
             hits = self._map_legal_hits(response.data or [], query_vehicle_type=query_vehicle_type)
             logger.info(
-                "legal retrieval rpc | rpc_selected=v4 | results=%s | vehicle_type=%s | query_km=%s",
+                "legal retrieval rpc | rpc_selected=%s | results=%s | vehicle_type=%s | query_km=%s",
+                self.settings.legal_retrieval_rpc_name,
                 len(hits),
                 query_vehicle_type,
                 query_km,
@@ -97,40 +102,41 @@ class RetrievalService:
             return {
                 "hits": hits,
                 "legal_db_unavailable": False,
-                "rpc_selected": "v4",
+                "rpc_selected": self.settings.legal_retrieval_rpc_name,
                 "v4_error_reason": None,
             }
         except Exception as exc:
-            logger.warning("legal retrieval rpc failed | rpc_selected=v4 | v4_error_reason=%s", exc)
-            return {
-                "hits": [],
-                "legal_db_unavailable": True,
-                "rpc_selected": "v4",
-                "v4_error_reason": str(exc),
-            }
-
-    def search_global_docs(
-        self,
-        original_question: str,
-        normalized_question: str,
-        canonical_legal_query: str,
-        query_vector: List[float],
-        original_query_vector: Optional[List[float]] = None,
-        normalized_query_vector: Optional[List[float]] = None,
-    ) -> List[Dict[str, Any]]:
-        try:
-            return self.global_doc_service.qdrant_service.search_global_docs(
-                original_question=original_question,
-                normalized_question=normalized_question,
-                canonical_legal_query=canonical_legal_query,
-                query_vector=query_vector,
-                original_query_vector=original_query_vector,
-                normalized_query_vector=normalized_query_vector,
-                limit=self.settings.global_doc_top_k,
+            logger.warning(
+                "legal retrieval rpc failed | rpc_selected=%s | reason=%s",
+                self.settings.legal_retrieval_rpc_name,
+                exc,
             )
-        except Exception as exc:
-            logger.warning("global doc search failed: %s", exc)
-            return []
+            try:
+                response = self.supabase.rpc(self.settings.legacy_legal_retrieval_rpc_name, rpc_payload).execute()
+                hits = self._map_legal_hits(response.data or [], query_vehicle_type=query_vehicle_type)
+                logger.info(
+                    "legal retrieval fallback rpc | rpc_selected=%s | results=%s",
+                    self.settings.legacy_legal_retrieval_rpc_name,
+                    len(hits),
+                )
+                return {
+                    "hits": hits,
+                    "legal_db_unavailable": False,
+                    "rpc_selected": self.settings.legacy_legal_retrieval_rpc_name,
+                    "v4_error_reason": str(exc),
+                }
+            except Exception as legacy_exc:
+                logger.warning(
+                    "legal retrieval legacy fallback failed | rpc_selected=%s | reason=%s",
+                    self.settings.legacy_legal_retrieval_rpc_name,
+                    legacy_exc,
+                )
+                return {
+                    "hits": [],
+                    "legal_db_unavailable": True,
+                    "rpc_selected": self.settings.legal_retrieval_rpc_name,
+                    "v4_error_reason": str(legacy_exc),
+                }
 
     def retrieve_context(
         self,
@@ -200,58 +206,9 @@ class RetrievalService:
             canonical_legal_query[:200],
         )
 
-        global_doc_hits: List[Dict[str, Any]] = []
-        global_doc_ready = False
-        global_doc_top_score = 0.0
-        used_global_docs = False
-        session_doc_hits: List[Dict[str, Any]] = []
-        session_doc_top_score = 0.0
-        used_session_docs = False
-        session_docs_available = False
-        fallback_to_legal_db = False
-        if not skip_global_docs:
-            global_docs_available = self.has_global_docs()
-            logger.info("global doc availability | has_global_docs=%s", global_docs_available)
-            if global_docs_available:
-                global_doc_hits = self.search_global_docs(
-                    original_question=original_question,
-                    normalized_question=normalized_question,
-                    canonical_legal_query=canonical_legal_query,
-                    query_vector=query_vector,
-                    original_query_vector=original_query_vector,
-                    normalized_query_vector=normalized_query_vector,
-                )
-                if global_doc_hits:
-                    global_doc_top_score = float(
-                        global_doc_hits[0].get("final_rerank_score")
-                        or global_doc_hits[0].get("hybrid_score")
-                        or 0.0
-                    )
-                    global_doc_ready = self._global_docs_sufficient(
-                        question=effective_question,
-                        hits=global_doc_hits,
-                        intent=intent,
-                        action=action,
-                        query_vehicle_type=query_vehicle_type,
-                        query_km=query_km,
-                    )
-                logger.info(
-                    "global doc retrieval | global_doc_hits=%s | global_doc_top_score=%s | used_global_docs=%s | fallback_to_rpc_v4=%s",
-                    len(global_doc_hits),
-                    round(global_doc_top_score, 4),
-                    global_doc_ready,
-                    not global_doc_ready,
-                )
-                if global_doc_ready:
-                    used_global_docs = True
-                else:
-                    fallback_to_legal_db = True
-                    if global_doc_hits:
-                        fallback_reason = "global_docs_weak"
-
         legal_results: List[Dict[str, Any]] = []
         candidate_hits: List[Dict[str, Any]] = []
-        final_hits: List[Dict[str, Any]] = global_doc_hits if used_global_docs else []
+        final_hits: List[Dict[str, Any]] = []
         legal_db_unavailable = False
         v4_error_reason = None
         km_match_count = 0
@@ -260,84 +217,76 @@ class RetrievalService:
         used_fallback = False
         fallback_reason = ""
 
-        if not used_global_docs and not used_session_docs:
-            legal_search = self.search_legal_db(
-                question=effective_question,
-                query_vector=query_vector,
-                query_km=query_km,
-                query_vehicle_type=query_vehicle_type,
-            )
-            legal_results = legal_search["hits"]
-            legal_db_unavailable = bool(legal_search["legal_db_unavailable"])
-            v4_error_reason = legal_search["v4_error_reason"]
-            candidate_hits = list(legal_results)
+        legal_search = self.search_legal_db(
+            question=effective_question,
+            query_vector=query_vector,
+            query_km=query_km,
+            query_vehicle_type=query_vehicle_type,
+            session_id=session_id,
+        )
+        legal_results = legal_search["hits"]
+        legal_db_unavailable = bool(legal_search["legal_db_unavailable"])
+        v4_error_reason = legal_search["v4_error_reason"]
+        candidate_hits = list(legal_results)
 
-            legal_ready, legal_above_threshold = self._meets_evidence_threshold(
-                hits=legal_results,
-                min_score=self.settings.rag_legal_score_threshold,
-                min_evidence=self.settings.rag_min_legal_evidence,
-            )
-            km_match_count = sum(1 for item in legal_results if item.get("km_phu_hop") is True)
-            intent_match_count = self._intent_match_count(
-                hits=legal_results,
-                query_vehicle_type=query_vehicle_type,
-                action=action,
-                query_km=query_km,
-            )
-            topic_mismatch = bool(legal_results) and intent_match_count == 0
-            logger.info(
-                "retrieval legal | results=%s | above_threshold=%s | km_match_hits=%s | intent_match=%s | topic_mismatch=%s",
-                len(legal_results),
-                legal_above_threshold,
-                km_match_count,
-                intent_match_count,
-                topic_mismatch,
-            )
+        _, legal_above_threshold = self._meets_evidence_threshold(
+            hits=legal_results,
+            min_score=self.settings.rag_legal_score_threshold,
+            min_evidence=self.settings.rag_min_legal_evidence,
+        )
+        km_match_count = sum(1 for item in legal_results if item.get("km_phu_hop") is True)
+        intent_match_count = self._intent_match_count(
+            hits=legal_results,
+            query_vehicle_type=query_vehicle_type,
+            action=action,
+            query_km=query_km,
+        )
+        topic_mismatch = bool(legal_results) and intent_match_count == 0
+        logger.info(
+            "retrieval legal | results=%s | above_threshold=%s | km_match_hits=%s | intent_match=%s | topic_mismatch=%s",
+            len(legal_results),
+            legal_above_threshold,
+            km_match_count,
+            intent_match_count,
+            topic_mismatch,
+        )
 
-            rerank_start = time.perf_counter()
-            final_hits = self._rerank_results(
-                question=effective_question,
-                hits=candidate_hits,
-                query_vehicle_type=query_vehicle_type,
-                query_km=query_km,
-                action=action,
-            )
-            rerank_time_ms = round((time.perf_counter() - rerank_start) * 1000, 2)
+        rerank_start = time.perf_counter()
+        final_hits = self._rerank_results(
+            question=effective_question,
+            hits=candidate_hits,
+            query_vehicle_type=query_vehicle_type,
+            query_km=query_km,
+            action=action,
+        )
+        rerank_time_ms = round((time.perf_counter() - rerank_start) * 1000, 2)
 
-            should_use_fallback = False
-            if legal_db_unavailable:
-                should_use_fallback = True
-                used_fallback = True
-                fallback_reason = "legal_db_unavailable"
-            elif len(final_hits) < self.settings.rag_min_legal_evidence:
-                should_use_fallback = True
-                used_fallback = True
-                fallback_reason = "too_few_legal_hits"
-            elif topic_mismatch:
-                should_use_fallback = True
-                used_fallback = True
-                fallback_reason = "topic_mismatch"
-            elif query_km is not None and action == "qua_toc_do" and km_match_count == 0:
-                should_use_fallback = True
-                used_fallback = True
-                fallback_reason = "missing_km_match"
+        if legal_db_unavailable:
+            used_fallback = True
+            fallback_reason = "legal_db_unavailable"
+        elif len(final_hits) < self.settings.rag_min_legal_evidence:
+            used_fallback = True
+            fallback_reason = "too_few_legal_hits"
+        elif topic_mismatch:
+            used_fallback = True
+            fallback_reason = "topic_mismatch"
+        elif query_km is not None and action == "qua_toc_do" and km_match_count == 0:
+            used_fallback = True
+            fallback_reason = "missing_km_match"
 
-            if should_use_fallback:
-                logger.info("retrieval web docs | skipped=True | reason=feature_removed")
-            else:
-                logger.info("retrieval web docs | skipped=True | reason=legal_path_sufficient")
-        else:
-            rerank_time_ms = 0.0
+        used_global_docs = any(item.get("source_type") == "admin_upload" for item in final_hits)
+        global_doc_hits = [item for item in legal_results if item.get("source_type") == "admin_upload"]
+        global_doc_top_score = float(
+            global_doc_hits[0].get("final_rerank_score") or global_doc_hits[0].get("hybrid_score") or 0.0
+        ) if global_doc_hits else 0.0
+        fallback_to_legal_db = False
 
         retrieval_time_ms = round((time.perf_counter() - t0) * 1000, 2)
         logger.info(
-            "retrieval fallback summary | global_doc_hits=%s | has_session_docs=%s | session_doc_hits=%s | legal_results=%s | used_global_docs=%s | used_session_docs=%s | fallback_to_legal_db=%s | used_fallback=%s | final_fallback_reason=%s",
+            "retrieval fallback summary | global_doc_hits=%s | legal_results=%s | used_global_docs=%s | fallback_to_legal_db=%s | used_fallback=%s | final_fallback_reason=%s",
             len(global_doc_hits),
-            session_docs_available,
-            len(session_doc_hits),
             len(legal_results),
             used_global_docs,
-            used_session_docs,
             fallback_to_legal_db,
             used_fallback,
             fallback_reason or "none",
@@ -348,18 +297,21 @@ class RetrievalService:
             "global_doc_hits": len(global_doc_hits),
             "global_doc_top_score": global_doc_top_score,
             "used_global_docs": used_global_docs,
-            "session_doc_results": session_doc_hits,
-            "session_doc_hits": len(session_doc_hits),
-            "session_doc_source_count": len({item.get("file_id") for item in session_doc_hits if item.get("file_id")}),
-            "session_doc_top_score": session_doc_top_score,
-            "used_session_docs": used_session_docs,
+
+            # giu lai key cu de frontend khong vo, nhung session docs da tat
+            "session_doc_results": [],
+            "session_doc_hits": 0,
+            "session_doc_source_count": 0,
+            "session_doc_top_score": 0.0,
+            "used_session_docs": False,
+
             "fallback_to_legal_db": fallback_to_legal_db,
             "legal_results": legal_results,
             "candidate_results": candidate_hits,
             "combined_results": final_hits,
             "used_fallback": used_fallback,
             "legal_db_unavailable": legal_db_unavailable,
-            "rpc_selected": "v4",
+            "rpc_selected": legal_search["rpc_selected"],
             "v4_error_reason": v4_error_reason,
             "detected_vehicle_type": query_vehicle_type,
             "query_km": query_km,
@@ -469,14 +421,29 @@ class RetrievalService:
         hits: List[Dict[str, Any]] = []
         for row in rows:
             primary_id = row.get("sothutund")
-            ancestors = ancestor_map.get(str(primary_id), [])
+            source_table = str(row.get("source_table") or "noidung").strip().lower()
+            row_key = f"{source_table}:{primary_id}"
+            ancestors = ancestor_map.get(row_key, [])
+            source_type = str(row.get("source_type") or ("legal_db" if source_table == "noidung" else "admin_upload")).strip()
+            label = (
+                format_db_source(row, ancestors=ancestors)
+                if source_table == "noidung"
+                else format_user_facing_source(
+                    {
+                        **row,
+                        "source_type": source_type,
+                        "ancestor_nodes": ancestors,
+                    }
+                )
+            )
             hits.append(
                 {
                     "primary_id": primary_id,
-                    "label": format_db_source(row, ancestors=ancestors),
+                    "label": label,
                     "content": row.get("noidung") or "",
                     "url": row.get("url"),
-                    "source_type": "legal_db",
+                    "source_type": source_type,
+                    "source_table": source_table,
                     "vehicle_type": query_vehicle_type,
                     "hybrid_score": float(row.get("do_tuong_dong") or 0.0),
                     "cross_encoder_score": 0.0,
@@ -487,6 +454,11 @@ class RetrievalService:
                     "km_phu_hop": bool(row.get("km_phu_hop")) if row.get("km_phu_hop") is not None else False,
                     "sohieu": row.get("sohieu"),
                     "so_hieu": row.get("so_hieu") or row.get("sohieu"),
+                    "ten_van_ban": row.get("ten_van_ban") or row.get("title"),
+                    "filename": row.get("source_file_name") or row.get("filename"),
+                    "section_path": row.get("section_path") or row.get("duong_dan_phan_cap"),
+                    "page_start": row.get("page_start"),
+                    "page_end": row.get("page_end"),
                     "dieu": self._extract_legal_unit_from_nodes(row, ancestors, "DIEU"),
                     "khoan": self._extract_legal_unit_from_nodes(row, ancestors, "KHOAN"),
                     "diem": self._extract_legal_unit_from_nodes(row, ancestors, "DIEM"),
@@ -498,55 +470,63 @@ class RetrievalService:
         return hits
 
     def _load_legal_ancestors(self, rows: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-        row_by_id = {str(row.get("sothutund")): dict(row) for row in rows if row.get("sothutund") is not None}
-        pending_ids = {
-            str(row.get("sothutund_cha"))
+        row_by_id = {
+            f"{str(row.get('source_table') or 'noidung').lower()}:{row.get('sothutund')}": dict(row)
             for row in rows
-            if row.get("sothutund_cha") not in {None, "", 0}
+            if row.get("sothutund") is not None
         }
+        unresolved_by_table: Dict[str, set[str]] = {"noidung": set(), "noidung2": set()}
+        for row in rows:
+            parent_id = row.get("sothutund_cha")
+            if parent_id in {None, "", 0}:
+                continue
+            source_table = str(row.get("source_table") or "noidung").strip().lower()
+            unresolved_by_table.setdefault(source_table, set()).add(str(parent_id))
+
         fetched: Dict[str, Dict[str, Any]] = {}
-        unresolved = set(pending_ids)
-        try:
-            while unresolved:
-                batch = list(unresolved)[:100]
-                response = (
-                    self.supabase.table("noidung")
-                    .select("sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu")
-                    .in_("sothutund", batch)
-                    .execute()
-                )
-                found_rows = response.data or []
-                if not found_rows:
-                    break
-                for node in found_rows:
-                    node_id = str(node.get("sothutund"))
-                    if node_id:
-                        fetched[node_id] = node
-                unresolved = {
-                    str(node.get("sothutund_cha"))
-                    for node in found_rows
-                    if node.get("sothutund_cha") not in {None, "", 0} and str(node.get("sothutund_cha")) not in fetched
-                } | {item for item in unresolved if item not in fetched and item not in batch}
-        except Exception as exc:
-            logger.warning("load legal ancestors failed | table=noidung | reason=%s", exc)
+        select_map = {
+            "noidung": "sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu,duong_dan_phan_cap",
+            "noidung2": "sothutund,sothutund_cha,loai_muc,ky_hieu,sohieu,section_path,ten_van_ban,source_file_name",
+        }
+        for table_name, unresolved in unresolved_by_table.items():
+            try:
+                while unresolved:
+                    batch = list(unresolved)[:100]
+                    response = self.supabase.table(table_name).select(select_map[table_name]).in_("sothutund", batch).execute()
+                    found_rows = response.data or []
+                    if not found_rows:
+                        break
+                    for node in found_rows:
+                        node_id = str(node.get("sothutund"))
+                        if node_id:
+                            fetched[f"{table_name}:{node_id}"] = {**node, "source_table": table_name}
+                    unresolved = {
+                        str(node.get("sothutund_cha"))
+                        for node in found_rows
+                        if node.get("sothutund_cha") not in {None, "", 0}
+                        and f"{table_name}:{node.get('sothutund_cha')}" not in fetched
+                    } | {item for item in unresolved if f"{table_name}:{item}" not in fetched and item not in batch}
+            except Exception as exc:
+                logger.warning("load legal ancestors failed | table=%s | reason=%s", table_name, exc)
 
         full_map = {**fetched, **row_by_id}
         ancestor_map: Dict[str, List[Dict[str, Any]]] = {}
         for row in rows:
             lineage: List[Dict[str, Any]] = []
             cursor = row.get("sothutund_cha")
+            source_table = str(row.get("source_table") or "noidung").strip().lower()
             visited = set()
             while cursor not in {None, "", 0}:
                 cursor_key = str(cursor)
                 if cursor_key in visited:
                     break
                 visited.add(cursor_key)
-                node = full_map.get(cursor_key)
+                node = full_map.get(f"{source_table}:{cursor_key}")
                 if not node:
                     break
                 lineage.append(node)
                 cursor = node.get("sothutund_cha")
-            ancestor_map[str(row.get("sothutund"))] = lineage
+            ancestor_map[f"{source_table}:{row.get('sothutund')}"] = lineage
         return ancestor_map
 
     def _extract_legal_unit_from_nodes(

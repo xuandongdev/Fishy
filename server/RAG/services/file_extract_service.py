@@ -33,6 +33,33 @@ class FileTextExtractionError(ValueError):
 
 class FileExtractService:
     SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt"}
+    NOISE_PATTERNS = [
+        re.compile(pattern, re.I)
+        for pattern in (
+            r"^nguoi ky\b",
+            r"^ky boi\b",
+            r"^ky dien tu\b",
+            r"^chu ky so\b",
+            r"^thoi gian ky\b",
+            r"^ngay ky\b",
+            r"^serial number\b",
+            r"^issued by\b",
+            r"^valid from\b",
+            r"^ma xac thuc\b",
+            r"^email\b",
+            r"^co quan ky\b",
+            r"^thong tin ky so\b",
+            r"^tai lieu duoc ky so\b",
+            r"^van ban duoc ky so\b",
+            r"^trich xuat tu he thong\b",
+            r"^scan(ed)? by\b",
+            r"^duoc tao boi\b",
+            r"^pdf\b",
+            r"^watermark\b",
+            r"^https?://",
+            r"^www\.",
+        )
+    ]
 
     def extract(self, file_name: str, content: bytes) -> ExtractedTextResult:
         extension = self._get_extension(file_name)
@@ -117,6 +144,7 @@ class FileExtractService:
         lines = [line.strip() for line in text.split("\n")]
         lines = [line for line in lines if line]
         lines = self._remove_repeated_headers_footers(lines)
+        lines = [line for line in lines if not self._is_noise_line(line)]
         normalized = "\n".join(lines)
         normalized = re.sub(r"\n{3,}", "\n\n", normalized)
         return normalized.strip()
@@ -134,3 +162,29 @@ class FileExtractService:
         if removable:
             logger.info("Da loai bo %s dong header/footer lap lai", len(removable))
         return filtered
+
+    def _is_noise_line(self, line: str) -> bool:
+        normalized = line.strip()
+        if not normalized:
+            return True
+        if re.match(r"^\[PAGE\s+\d+\]$", normalized, re.I):
+            return False
+        lowered = normalized.lower()
+        if any(pattern.search(lowered) for pattern in self.NOISE_PATTERNS):
+            return True
+        if "@" in normalized and "." in normalized:
+            return True
+        if re.match(r"^(trang|page)\s+\d+(?:/\d+)?$", lowered):
+            return True
+        if re.match(r"^\d+\s*/\s*\d+$", lowered):
+            return True
+        if re.match(r"^(?:-|_){4,}$", normalized):
+            return True
+        if re.match(r"^[A-Z0-9 .:/-]{8,}$", normalized):
+            digit_ratio = sum(ch.isdigit() for ch in normalized) / max(len(normalized), 1)
+            if digit_ratio >= 0.35 and ("pdf" in lowered or "ky" in lowered or "serial" in lowered):
+                return True
+        alpha_count = sum(ch.isalpha() for ch in normalized)
+        if alpha_count == 0 and re.search(r"\d", normalized):
+            return True
+        return False

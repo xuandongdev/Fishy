@@ -18,10 +18,8 @@ class RAGSettings:
     classifier_timeout_seconds: float
     rag_legal_score_threshold: float
     rag_min_legal_evidence: int
-    qdrant_url: str
-    qdrant_api_key: str
-    qdrant_collection_session_docs: str
-    qdrant_collection_global_docs: str
+    legal_retrieval_rpc_name: str
+    legacy_legal_retrieval_rpc_name: str
     session_doc_top_k: int
     session_doc_score_threshold: float
     session_doc_ttl_hours: int
@@ -49,10 +47,8 @@ class RAGSettings:
             classifier_timeout_seconds=float(os.getenv("CLASSIFIER_TIMEOUT_SECONDS", "2.5")),
             rag_legal_score_threshold=float(os.getenv("RAG_LEGAL_SCORE_THRESHOLD", "0.45")),
             rag_min_legal_evidence=int(os.getenv("RAG_MIN_LEGAL_EVIDENCE", "2")),
-            qdrant_url=os.getenv("QDRANT_URL", os.getenv("QDRANT_ENDPOINT", "")).strip(),
-            qdrant_api_key=os.getenv("QDRANT_API_KEY", os.getenv("QDRANT_KEY", "")).strip(),
-            qdrant_collection_session_docs=os.getenv("QDRANT_COLLECTION_SESSION_DOCS", "session_docs").strip(),
-            qdrant_collection_global_docs=os.getenv("QDRANT_COLLECTION_GLOBAL_DOCS", "global_docs").strip(),
+            legal_retrieval_rpc_name=os.getenv("LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_unified").strip(),
+            legacy_legal_retrieval_rpc_name=os.getenv("LEGACY_LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_v4").strip(),
             session_doc_top_k=int(os.getenv("SESSION_DOC_TOP_K", "5")),
             session_doc_score_threshold=float(os.getenv("SESSION_DOC_SCORE_THRESHOLD", "0.55")),
             session_doc_ttl_hours=int(os.getenv("SESSION_DOC_TTL_HOURS", "24")),
