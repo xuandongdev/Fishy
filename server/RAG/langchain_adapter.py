@@ -47,7 +47,10 @@ LEGAL_KEYWORDS = (
     "giu xe",
     "tam giu",
     "can cu",
-    "bang lai"
+    "bang lai",
+    "thue xe tu lai",
+    "cho thue phuong tien",
+    
 )
 
 FOLLOWUP_MARKERS = (
@@ -150,10 +153,10 @@ class LangChainAdapter:
                         "Ban la bo phan phan loai intent cho API /chat cua Fishy. "
                         "Chi duoc tra ve dung mot tu duy nhat: YES hoac NO. "
                         "Tra ve YES neu cau hoi lien quan phap luat giao thong duong bo, muc phat, hanh vi vi pham, "
-                        "giay phep lai xe, phuong tien, bien bao, dinh nghia phap ly, hoac la follow-up van dang bam vao ngu canh giao thong/phap ly truoc do. "
+                        "giay phep lai xe, phuong tien, bien bao, dinh nghia phap ly, kinh doanh xe tu lai, hoac la follow-up van dang bam vao ngu canh giao thong/phap ly truoc do. "
                         "Neu cau hien tai ngan, mang tinh noi tiep nhu con, vay con, the con, truong hop do, neu vay, thi sao, con xe may, con o to, "
                         "va 2-4 turn gan day dang o ngu canh phap luat giao thong, bat buoc tra ve YES. "
-                        "Tra ve NO neu la chao hoi, xa giao, test, cau hoi chung, vi du hello, hi, ok, ban la ai, cam on. "
+                        "Tra ve NO neu la chao hoi, xa giao, test, cau hoi chung, vi du hello, hi, ok, ban la ai, cam on, hoac cau hoi khac khong lien quan den phap luat giao thong. "
                         "Khong giai thich. Khong them ky tu nao khac ngoai YES hoac NO."
                     ),
                 ),
