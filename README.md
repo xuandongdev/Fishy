@@ -1,10 +1,12 @@
 # Fishy
 
-Fishy là ứng dụng hỗ trợ tra cứu pháp luật giao thông và nhận diện biển báo. Repo hiện tại gồm 3 phần chính:
+Fishy là ứng dụng hỗ trợ tra cứu pháp luật giao thông và nhận diện biển báo giao thông. Hệ thống được xây dựng gồm 3 phần chính:
 
-- Flutter app cho người dùng cuối và quản trị viên
+- Flutter app cho người dùng và quản trị viên
 - Backend RAG/FastAPI cho hỏi đáp pháp lý
-- Backend YOLO để nhận diện ảnh
+- Backend YOLO để nhận diện ảnh biển báo
+
+Mục tiêu của hệ thống là giúp quản lý văn bản pháp luật, thêm nội dung văn bản theo hai cách khác nhau, và hỗ trợ người dùng tra cứu quy định giao thông một cách dễ hiểu, có căn cứ.
 
 ![Demo GIF](./assets/okdemo.gif)
 
@@ -15,294 +17,270 @@ Fishy là ứng dụng hỗ trợ tra cứu pháp luật giao thông và nhận 
   <img src="./assets/4.jpg" width="24%" />
 </p>
 
-## Tổng quan kiến trúc
+---
 
-```text
-Flutter App
-  |- Supabase
-  |   |- Auth
-  |   |- app_config
-  |   |- nguoidung
-  |   |- lich_su_tro_chuyen
-  |   |- vanbanphapluat
-  |   |- noidung
-  |
-  |- RAG API (:8000)
-  |   |- route legal/general
-  |   |- Qdrant session docs
-  |   |- Qdrant global docs
-  |   |- Supabase RPC match_legal_docs_v4
-  |   |- CrossEncoder rerank
-  |   `- OpenAI answer generation
-  |
-  |- YOLO API (:8001)
-  |   |- /detect
-  |   `- /detect-lite
-  |
-  `- Local YOLO on-device
-```
+## Hệ thống hiện đang làm được gì
 
-## Flow hiện tại
+Fishy hiện đã triển khai các chức năng chính sau:
 
-### 1. Chat pháp lý
+### 1. Quản lý văn bản pháp luật
+Quản trị viên có thể:
 
-Entrypoint backend hiện tại là:
+- thêm mới văn bản pháp luật
+- cập nhật thông tin văn bản
+- quản lý trạng thái như còn hiệu lực hoặc hết hiệu lực
+- xem danh sách văn bản đã lưu
+- xem chi tiết nội dung văn bản
+
+Thông tin văn bản được lưu ở bảng `vanbanphapluat`.
+
+### 2. Thêm nội dung văn bản theo hai cách
+Sau khi đã tạo văn bản pháp luật, quản trị viên có thể thêm nội dung bằng hai hướng:
+
+- **Nhập tay**: dùng để thêm thủ công các Chương, Mục, Điều, Khoản, Điểm vào bảng `noidung`
+- **Upload file**: dùng để ingest PDF, DOCX hoặc TXT, parser sẽ tách theo cấu trúc pháp lý và lưu vào bảng `noidung2`
+
+Như vậy:
+
+- `noidung` là nội dung nhập tay
+- `noidung2` là nội dung tách tự động từ file
+
+### 3. Hỏi đáp pháp luật bằng RAG
+Người dùng có thể đặt câu hỏi pháp luật giao thông trong app. Hệ thống sẽ:
+
+- phân loại câu hỏi là legal hay general
+- nếu là câu hỏi pháp lý thì đưa vào legal RAG
+- truy xuất dữ liệu từ DB
+- rerank kết quả
+- sinh câu trả lời cuối cùng bằng mô hình ngôn ngữ
+
+Mục tiêu là trả lời có căn cứ, không trả lời pháp lý theo trí nhớ chung.
+
+### 4. Nhận diện biển báo giao thông
+Fishy còn có chức năng nhận diện biển báo bằng YOLO, hỗ trợ:
+
+- gửi ảnh lên backend
+- nhận ảnh đã annotate
+- nhận danh sách boxes và nhãn
+- có thể dùng local hoặc backend tùy flow
+
+---
+
+## Cách hệ thống hoạt động
+
+## 1. Tầng dữ liệu
+
+Hệ thống pháp lý hiện tổ chức theo 3 bảng chính:
+
+### `vanbanphapluat`
+Đây là bảng cha, lưu metadata của văn bản:
+
+- số hiệu văn bản
+- tên văn bản
+- ngày ký
+- ngày hiệu lực
+- trạng thái
+- cơ quan ban hành
+- loại văn bản
+
+Trạng thái như còn hiệu lực hoặc hết hiệu lực được quản lý ở bảng này.
+
+### `noidung`
+Đây là bảng con dùng cho nội dung **nhập tay**.
+
+Dữ liệu ở đây được thêm theo cây pháp lý như:
+
+- Chương
+- Mục
+- Điều
+- Khoản
+- Điểm
+
+Bảng này phù hợp cho các nội dung đã được chuẩn hóa thủ công.
+
+### `noidung2`
+Đây là bảng con dùng cho nội dung **ingest từ file**.
+
+Khi upload file, backend sẽ:
+
+- đọc file
+- parse theo cấu trúc pháp lý
+- tách thành các node phù hợp
+- sinh embedding
+- lưu từng chunk vào `noidung2`
+
+Bảng này giúp ingest các văn bản lớn nhanh hơn, không cần nhập tay từng điều khoản.
+
+---
+
+## 2. Tầng ứng dụng Flutter
+
+App Flutter hiện có các nhóm màn hình chính:
+
+### `AddLawScreen`
+Dùng để tạo mới văn bản pháp luật.
+
+Ở màn này, quản trị viên chỉ nhập metadata văn bản như:
+
+- số hiệu
+- tên văn bản
+- trạng thái
+- ngày ký
+- ngày hiệu lực
+- cơ quan ban hành
+- loại văn bản
+
+Màn này **không còn là nơi upload file**.
+
+### `AddLawContentScreen`
+Dùng để thêm nội dung cho văn bản đã có sẵn.
+
+Màn này có 2 luồng:
+
+- nhập tay vào `noidung`
+- upload file để ingest vào `noidung2`
+
+Đây là màn trung tâm cho việc thêm nội dung văn bản.
+
+### `LawManageScreen`
+Dùng để quản lý danh sách văn bản pháp luật.
+
+Có thể:
+
+- xem danh sách
+- lọc
+- tìm kiếm
+- sửa metadata
+- mở màn thêm nội dung
+
+### `LawDetailScreen`
+Dùng để xem chi tiết văn bản.
+
+Màn này hiển thị:
+
+- thông tin metadata từ `vanbanphapluat`
+- nội dung liên quan từ `noidung`
+- nội dung ingest từ `noidung2`
+
+### Chat pháp lý
+Người dùng gửi câu hỏi pháp luật, app gọi backend RAG để lấy câu trả lời có căn cứ.
+
+### Nhận diện biển báo
+Người dùng chọn ảnh hoặc camera, app gọi YOLO để nhận diện biển báo.
+
+---
+
+## 3. Tầng backend RAG
+
+Backend RAG dùng FastAPI và đóng vai trò xử lý toàn bộ logic legal chat.
+
+Entrypoint chính:
 
 - `server/RAG/trusted_rag_app.py`
-- router chat: `server/RAG/router/chat_router.py`
-- điều phối route: `server/RAG/langchain_adapter.py`
 
-Flow đang chạy:
+Các thành phần quan trọng:
 
-1. Flutter gửi câu hỏi tới `POST /chat` hoặc `POST /api/chat/ask`
-2. `LangChainAdapter` phân loại:
-   - `legal_rag`
-   - `general_chat`
+- `router/chat_router.py`
+- `langchain_adapter.py`
+- `services/retrieval_service.py`
+- `services/answer_service.py`
+- `services/document_parser_service.py`
+- `services/global_doc_service.py`
+- `services/noidung2_ingest_service.py`
+
+### Legal chat hoạt động như sau
+
+1. Flutter gửi câu hỏi tới `POST /chat`
+2. `LangChainAdapter` phân loại câu hỏi
 3. Nếu là legal:
-   - build `effective_question` từ câu hiện tại + history
-   - sinh query embedding bằng `intfloat/multilingual-e5-large`
-4. Retrieval ưu tiên theo thứ tự:
-   - Qdrant global docs
-   - nếu chưa đủ thì Supabase RPC `match_legal_docs_v4`
-5. Candidate hits được rerank bằng `BAAI/bge-reranker-v2-m3`
-6. `AnswerService` sinh câu trả lời cuối bằng OpenAI
-7. Nguồn trả về cho user được format theo kiểu pháp lý thân thiện, không lộ nhãn backend nội bộ
-
-### 2. Global docs trong Qdrant
-
-Global docs hiện là kho văn bản admin upload để phục vụ retrieval chung.
-
-Đặc điểm hiện tại:
-
-- collection mặc định: `global_docs`
-- embedding model: `intfloat/multilingual-e5-large`
-- vector size: `1024`
-- query prefix: `query: `
-- passage prefix: `passage: `
-- distance: `cosine`
-
-Payload global docs hiện chỉ giữ:
-
-- nội dung gốc của tài liệu
-- metadata văn bản/pháp lý
-
-Không còn dùng:
-
-- `canonical_action`
-- `rela`
-- `rela_text`
-- `rela_embed`
-- `rela_source`
-- `rela_reviewed`
-
-Chunking global docs hiện bám cấu trúc pháp lý:
-
-- `Điều` là đơn vị chính
-- nếu `Điều` dài thì tách theo `Khoản`
-- nếu cần thì tách tiếp theo `Điểm`
-- nếu có mục con kiểu `1.`, `2.`, `3.` ở đầu dòng thì coi như đơn vị con hợp lệ
-- chỉ token split khi đơn vị con vẫn quá dài
-
-Các endpoint liên quan:
-
-- `POST /upload-global-doc`
-- `POST /global-docs/{file_id}/activate`
-- `POST /global-docs/{file_id}/deactivate`
-- `DELETE /global-docs/{file_id}`
-
-### 3. Session docs trong Qdrant
-
-Session docs là tài liệu người dùng upload cho riêng một phiên chat.
-
-Flow:
-
-1. User upload file qua `POST /upload-session-doc`
-2. File được parse text
-3. Chunk theo section/text
-4. Upsert vào Qdrant collection `session_docs`
-5. Dùng cho retrieval trong phạm vi session đó
-
-Lưu ý:
-
-- hiện retrieval chính vẫn ưu tiên global docs
-- session docs đã có service và endpoint upload
-- TTL session docs được đọc từ `.env`
-
-### 4. Nguồn hiển thị cho user
-
-Nguồn trong answer hiện đã được thống nhất theo format pháp lý, ví dụ:
-
-- `Nguồn: Khoản 2, Điều 2, LUẬT TRẬT TỰ, AN TOÀN GIAO THÔNG ĐƯỜNG BỘ (36/2024/QH15)`
-- `Nguồn: Điểm a, Khoản 6, Điều 18, NGHỊ ĐỊNH 168/2024/NĐ-CP (168/2024/NĐ-CP)`
-
-Không còn hiển thị các nhãn backend như:
-
-- `legal_db`
-- `admin_upload`
-- `source_type`
-
-Formatter chung nằm ở:
-
-- `server/RAG/services/source_formatter.py`
-
-### 5. YOLO backend
-
-Entrypoint:
-
-- `server/Yolo/app.py`
-
-Endpoint:
-
-- `POST /detect`
-- `POST /detect-lite`
-
-Flow:
-
-1. Server load model YOLO từ `server/Yolo/model/best.pt`
-2. Load nhãn tiếng Việt từ `server/Yolo/classes_vie.txt`
-3. Nhận ảnh upload
-4. Chạy detect
-5. Trả về:
-   - summary
-   - ảnh annotate base64 với `/detect`
-   - boxes + width/height với `/detect-lite`
-
-## Cấu trúc thư mục đáng chú ý
-
-### Flutter app
-
-- `lib/main.dart`: entrypoint app
-- `lib/Views/`: các màn hình
-- `lib/ViewModels/`: state management
-- `lib/Services/ChatService.dart`: gọi chat API
-- `lib/Services/LegalIngestService.dart`: gọi legal ingest API
-- `lib/Services/LocalYoloService.dart`: nhận diện local trên mobile
-
-### RAG backend
-
-- `server/RAG/trusted_rag_app.py`: app FastAPI chính cho RAG
-- `server/RAG/router/chat_router.py`: các route chat và upload docs
-- `server/RAG/langchain_adapter.py`: route legal/general, orchestration
-- `server/RAG/services/retrieval_service.py`: retrieval pipeline
-- `server/RAG/services/qdrant_service.py`: session/global docs trên Qdrant
-- `server/RAG/services/global_doc_service.py`: ingest global docs
-- `server/RAG/services/session_doc_service.py`: ingest session docs
-- `server/RAG/services/document_parser_service.py`: parse section/cấu trúc pháp lý
-- `server/RAG/services/answer_service.py`: sinh answer cuối
-- `server/RAG/services/source_formatter.py`: format nguồn hiển thị
-### YOLO backend
-
-- `server/Yolo/app.py`
-- `server/Yolo/model/best.pt`
-- `server/Yolo/classes_vie.txt`
-
-## Biến môi trường chính
-
-### RAG backend
-
-`server/RAG/.env`
-
-Các biến quan trọng:
-
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `OPENAI_API_KEY`
-- `HF_EMBED_MODEL`
-- `ANSWER_MODEL`
-- `QDRANT_URL`
-- `QDRANT_API_KEY`
-- `QDRANT_COLLECTION_SESSION_DOCS`
-- `QDRANT_COLLECTION_GLOBAL_DOCS`
-- `RAG_PORT`
-- `RAG_LEGAL_SCORE_THRESHOLD`
-- `RAG_MIN_LEGAL_EVIDENCE`
-- `SESSION_DOC_TOP_K`
-- `SESSION_DOC_SCORE_THRESHOLD`
-- `SESSION_DOC_TTL_HOURS`
-- `SESSION_DOC_CHUNK_SIZE`
-- `SESSION_DOC_CHUNK_OVERLAP`
-- `GLOBAL_DOC_TOP_K`
-- `GLOBAL_DOC_SCORE_THRESHOLD`
-- `RERANK_MODEL_NAME`
-- `RERANK_CANDIDATE_COUNT`
-- `RERANK_FINAL_TOP_K`
-
-Mặc định đáng chú ý:
-
-- embedding model: `intfloat/multilingual-e5-large`
-- answer model: `gpt-4o-mini`
-- reranker: `BAAI/bge-reranker-v2-m3`
-
-## Cách chạy local
-
-### 1. Flutter
-
-```bash
-flutter pub get
-flutter run
-```
-
-### 2. Cài Python dependency
-
-RAG:
-
-```bash
-cd server/RAG
-pip install -r requirements.txt
-```
-
-YOLO:
-
-```bash
-cd server/Yolo
-pip install -r requirements.txt
-```
-
-### 3. Chạy RAG API
-
-```bash
-cd server/RAG
-uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### 4. Chạy YOLO API
-
-```bash
-cd server/Yolo
-uvicorn app:app --host 0.0.0.0 --port 8001 --reload
-```
-
-## Endpoint chính
-
-### Chat / retrieval
-
-- `POST /chat`
-- `POST /api/chat/ask`
-- `GET /health`
-
-### Document upload cho RAG
-
-- `POST /upload-session-doc`
-- `POST /upload-global-doc`
-- `POST /global-docs/{file_id}/activate`
-- `POST /global-docs/{file_id}/deactivate`
-- `DELETE /global-docs/{file_id}`
-
-### YOLO
-
-- `POST /detect`
-- `POST /detect-lite`
-
-## Ghi chú triển khai
-
-- `trusted_rag_app.py`, `legal_ingest_app.py` và `server/Yolo/app.py` đều có logic mở Cloudflare tunnel và cập nhật URL về `app_config` trong Supabase
-- Flutter app lấy `rag_url`, `legal_ingest_url`, `yolo_url` từ `app_config`
-- Nếu không có Qdrant hoặc dữ liệu global docs chưa đủ, hệ thống sẽ fallback về `match_legal_docs_v4`
-## Tóm tắt ngắn
-
-Flow hiện tại của Fishy là:
-
-1. Ưu tiên trả lời từ global docs/session docs trong Qdrant khi có dữ liệu phù hợp
-2. Nếu chưa đủ thì fallback sang legal DB qua `match_legal_docs_v4`
-3. Tất cả được rerank rồi mới sinh answer cuối
-4. Nguồn hiển thị cho user theo format pháp lý thân thiện, không lộ nhãn debug/backend
+   - chuẩn hóa câu hỏi
+   - sinh câu hỏi hiệu lực (`effective_question`)
+   - tạo embedding
+4. `RetrievalService` truy xuất dữ liệu từ DB
+5. Hệ thống ưu tiên dùng dữ liệu phù hợp từ `noidung`
+6. Nếu `noidung` không đủ mạnh hoặc không đủ chi tiết thì dùng `noidung2`
+7. Candidate results được rerank
+8. `AnswerService` sinh câu trả lời cuối
+9. App nhận câu trả lời cùng nguồn tham khảo
+
+### Điểm quan trọng của legal flow mới
+
+Legal flow hiện tại **không còn dùng Qdrant**.
+
+Thay vào đó, hệ thống dùng trực tiếp dữ liệu trong Supabase/Postgres:
+
+- `vanbanphapluat`
+- `noidung`
+- `noidung2`
+
+Điều này giúp legal flow dễ kiểm soát hơn, rõ ràng hơn, và bám sát dữ liệu thật trong hệ thống.
+
+---
+
+## 4. Tầng ingest file
+
+Khi quản trị viên upload file pháp luật, flow hoạt động như sau:
+
+1. Người dùng đã có sẵn `sohieuvanban` trong `vanbanphapluat`
+2. Chọn file tại `AddLawContentScreen`
+3. App gọi endpoint upload file
+4. Backend kiểm tra:
+   - có file hay không
+   - có `so_hieu` hay không
+   - `so_hieu` đó có tồn tại trong `vanbanphapluat` hay không
+5. Nếu hợp lệ:
+   - parse file
+   - nhận diện cấu trúc pháp lý
+   - sinh chunk
+   - lưu vào `noidung2`
+
+### Nguyên tắc ingest hiện tại
+
+- không ingest nếu chưa có văn bản cha trong `vanbanphapluat`
+- `noidung2` chỉ dành cho file upload
+- không dùng `AddLawScreen` để upload file trực tiếp nữa
+
+---
+
+## Các flow chính của hệ thống
+
+## Flow 1: Tạo văn bản mới
+1. Quản trị viên mở `AddLawScreen`
+2. Nhập metadata văn bản
+3. Lưu vào `vanbanphapluat`
+4. Chuyển sang `AddLawContentScreen`
+
+## Flow 2: Thêm nội dung thủ công
+1. Chọn văn bản cần thêm nội dung
+2. Chọn vị trí trong cây pháp lý
+3. Nhập nội dung thủ công
+4. Lưu vào `noidung`
+
+## Flow 3: Thêm nội dung bằng file
+1. Chọn văn bản đã có `sohieuvanban`
+2. Chọn file PDF/DOCX/TXT
+3. Gửi file sang backend
+4. Backend parse và ingest
+5. Lưu chunk vào `noidung2`
+
+## Flow 4: Quản lý và xem chi tiết văn bản
+1. Quản trị viên vào `LawManageScreen`
+2. Chọn một văn bản
+3. Xem metadata
+4. Xem nội dung từ `noidung` và `noidung2`
+5. Chỉnh sửa khi cần
+
+## Flow 5: Chat pháp lý
+1. Người dùng nhập câu hỏi
+2. Backend xác định đây có phải câu hỏi legal không
+3. Nếu đúng:
+   - truy xuất dữ liệu liên quan
+   - rerank
+   - sinh câu trả lời cuối
+4. Trả về câu trả lời cùng nguồn tham khảo
+
+## Flow 6: Nhận diện biển báo
+1. Người dùng chọn ảnh
+2. App gửi ảnh đến YOLO backend
+3. Backend detect
+4. Trả về nhãn, boxes, hoặc ảnh annotate

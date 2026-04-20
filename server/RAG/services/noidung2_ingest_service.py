@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import UploadFile
@@ -49,6 +49,12 @@ class NoiDung2IngestService:
         expires_at: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         file_name = (upload_file.filename or "uploaded_legal_document").strip()
+        normalized_so_hieu = (so_hieu or self._guess_so_hieu(file_name)).strip().upper() or None
+        if not normalized_so_hieu:
+            raise ValueError("Thieu so_hieu de lien ket voi vanbanphapluat.")
+
+        self._ensure_vanban_exists(normalized_so_hieu)
+
         parsed = self.parser_service.parse_document(file_name, file_bytes)
         nodes = list(parsed.get("nodes") or [])
         if not nodes:
@@ -56,7 +62,6 @@ class NoiDung2IngestService:
 
         now = datetime.now(timezone.utc)
         active_file_id = str(uuid.uuid4())
-        normalized_so_hieu = (so_hieu or self._guess_so_hieu(file_name)).strip() or None
         normalized_title = (ten_van_ban or self._guess_title(file_name)).strip() or file_name
         source_file_type = str(parsed.get("doc_type") or self._guess_extension(file_name) or "unknown")
         doc_type = "session_upload" if scope == "session" else "global_upload"
@@ -95,7 +100,11 @@ class NoiDung2IngestService:
             )
             embedding = self.embedding_service.generate_passage_embedding(search_text) if is_validated else None
             rela = list(node.get("rela") or [])
-            rela_embed = self.embedding_service.generate_rela_embedding(str(node.get("noidung") or ""), rela) if is_validated and rela else None
+            rela_embed = (
+                self.embedding_service.generate_rela_embedding(str(node.get("noidung") or ""), rela)
+                if is_validated and rela
+                else None
+            )
 
             row = {
                 "sohieu": normalized_so_hieu,
@@ -175,12 +184,13 @@ class NoiDung2IngestService:
             )
 
         logger.info(
-            "noidung2 ingest completed | scope=%s | file_id=%s | nodes=%s | validated=%s | inserted=%s",
+            "noidung2 ingest completed | scope=%s | file_id=%s | nodes=%s | validated=%s | inserted=%s | so_hieu=%s",
             scope,
             active_file_id,
             len(nodes),
             validated_count,
             inserted_count,
+            normalized_so_hieu,
         )
         return {
             "success": True,
@@ -188,6 +198,7 @@ class NoiDung2IngestService:
             "filename": file_name,
             "title": normalized_title,
             "ten_van_ban": normalized_title,
+            "so_hieu": normalized_so_hieu,
             "chunks_indexed": sum(1 for item in preview if item["is_validated"]),
             "inserted_count": inserted_count,
             "sections_count": int(parsed.get("sections_count") or 0),
@@ -315,3 +326,15 @@ class NoiDung2IngestService:
 
     def _guess_extension(self, file_name: str) -> str:
         return os.path.splitext(file_name)[1].lstrip(".").lower()
+
+    def _ensure_vanban_exists(self, so_hieu: str) -> None:
+        response = (
+            self.supabase.table("vanbanphapluat")
+            .select("sohieuvanban")
+            .eq("sohieuvanban", so_hieu)
+            .limit(1)
+            .execute()
+        )
+        rows = response.data or []
+        if not rows:
+            raise ValueError("So hieu van ban chua ton tai trong vanbanphapluat. Hay tao van ban truoc khi ingest file.")
