@@ -11,7 +11,6 @@ class AddLawVM extends ChangeNotifier {
   int? selectedCoQuan;
   int? selectedLoaiVanBan;
 
-  // ✅ 2 option cố định IN HOA
   final List<String> trangThaiOptions = const [
     'CÒN HIỆU LỰC',
     'HẾT HIỆU LỰC',
@@ -21,7 +20,6 @@ class AddLawVM extends ChangeNotifier {
 
   AddLawVM() {
     fetchDropdownData();
-    // default trạng thái
     selectedTrangThai = trangThaiOptions.first;
   }
 
@@ -32,7 +30,6 @@ class AddLawVM extends ChangeNotifier {
 
       coQuanList = List<Map<String, dynamic>>.from(coQuanResponse);
       loaiVanBanList = List<Map<String, dynamic>>.from(loaiVanBanResponse);
-
       notifyListeners();
     } catch (e) {
       debugPrint('Lỗi tải dropdown: $e');
@@ -41,6 +38,17 @@ class AddLawVM extends ChangeNotifier {
 
   Future<bool> addLaw(AddLawModel law) async {
     try {
+      final existed = await supabase
+          .from('vanbanphapluat')
+          .select('sohieuvanban')
+          .eq('sohieuvanban', law.sohieu)
+          .maybeSingle();
+
+      if (existed != null) {
+        debugPrint('Văn bản đã tồn tại: ${law.sohieu}');
+        return true;
+      }
+
       await supabase.from('vanbanphapluat').insert(law.toMap());
       return true;
     } catch (e) {

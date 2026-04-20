@@ -1,7 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../Models/LawModel.dart';
 import '../Models/LawContentModel.dart';
+import '../Models/LawModel.dart';
 
 class LawViewModel extends ChangeNotifier {
   final List<LawModel> _vanBan = [];
@@ -19,14 +19,11 @@ class LawViewModel extends ChangeNotifier {
           .select()
           .order('ngayky', ascending: false);
 
-      print("DEBUG - Dữ liệu trả về: $response");
-
-      _vanBan.clear();
-      _vanBan.addAll(
-        response.map((e) => LawModel.fromMap(e)),
-      );
+      _vanBan
+        ..clear()
+        ..addAll(response.map((e) => LawModel.fromMap(e)));
     } catch (e) {
-      print("Lỗi fetchVanBans: $e");
+      print('Lỗi fetchVanBans: $e');
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -41,19 +38,17 @@ class LawViewModel extends ChangeNotifier {
     await fetchVanBan();
   }
 
-
-
   Future<void> updateVanBan(LawModel vb) async {
-    try{
+    try {
       await Supabase.instance.client
           .from('vanbanphapluat')
           .update(vb.toMap())
           .eq('sohieuvanban', vb.sohieu);
 
       await fetchVanBan();
-    }catch(e){
-      print("Lỗi khi cập nhật văn bản: $e");
-    }finally{
+    } catch (e) {
+      print('Lỗi khi cập nhật văn bản: $e');
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
@@ -69,16 +64,39 @@ class LawViewModel extends ChangeNotifier {
 
       return (response as List).map((e) => LawContentModel.fromMap(e)).toList();
     } catch (e) {
-      print("Lỗi fetchNoiDungBySohieu: $e");
+      print('Lỗi fetchNoiDungBySohieu: $e');
       return [];
     }
   }
 
+  Future<List<Map<String, dynamic>>> fetchNoiDung2SoHieu(String sohieu) async {
+    try {
+      final response = await Supabase.instance.client
+          .from('noidung2')
+          .select('sothutund, noidung, ky_hieu, loai_muc, section_path, chunk_index, source_file_name, is_validated, is_active')
+          .eq('so_hieu', sohieu)
+          .order('chunk_index', ascending: true);
+      return List<Map<String, dynamic>>.from(response);
+    } catch (_) {
+      try {
+        final response = await Supabase.instance.client
+            .from('noidung2')
+            .select('sothutund, noidung, ky_hieu, loai_muc, section_path, chunk_index, source_file_name, is_validated, is_active')
+            .eq('sohieu', sohieu)
+            .order('chunk_index', ascending: true);
+        return List<Map<String, dynamic>>.from(response);
+      } catch (e) {
+        print('Lỗi fetchNoiDung2SoHieu: $e');
+        return [];
+      }
+    }
+  }
+
   Future<LawContentModel?> updateLawContent(
-      int sothutund,
-      String noidung, {
-        int? modifiedBy,
-      }) async {
+    int sothutund,
+    String noidung, {
+    int? modifiedBy,
+  }) async {
     try {
       final updateData = {
         'noidung': noidung,
@@ -102,11 +120,28 @@ class LawViewModel extends ChangeNotifier {
 
       return LawContentModel.fromMap(response);
     } catch (e) {
-      print("Lỗi updateLawContent: $e");
+      print('Lỗi updateLawContent: $e');
       return null;
     } finally {
       _isLoading = false;
       notifyListeners();
+    }
+  }
+
+  Future<bool> updateNoiDung2Content(int sothutund, String noidung) async {
+    try {
+      await Supabase.instance.client
+          .from('noidung2')
+          .update({
+            'noidung': noidung,
+            'raw_text': noidung,
+            'modified_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('sothutund', sothutund);
+      return true;
+    } catch (e) {
+      print('Lỗi updateNoiDung2Content: $e');
+      return false;
     }
   }
 
@@ -118,10 +153,9 @@ class LawViewModel extends ChangeNotifier {
           .eq('sothutund', sothutund)
           .single();
 
-      print("DEBUG - Dữ liệu trả về: $response");
       return LawContentModel.fromMap(response);
     } catch (e) {
-      print("Lỗi khi lấy nội dung với người chỉnh sửa: $e");
+      print('Lỗi khi lấy nội dung với người chỉnh sửa: $e');
       return null;
     }
   }
