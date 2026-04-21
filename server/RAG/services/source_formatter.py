@@ -11,7 +11,6 @@ _CHUONG_RE = re.compile(r"(?:^|[\s,;:])chuong\s+([ivxlcdm0-9]+)\b", re.I)
 _INTERNAL_LABELS = {
     "legal_db",
     "admin_upload",
-    "session_docs",
     "user_upload",
     "source_type",
 }

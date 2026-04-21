@@ -20,11 +20,6 @@ class RAGSettings:
     rag_min_legal_evidence: int
     legal_retrieval_rpc_name: str
     legacy_legal_retrieval_rpc_name: str
-    session_doc_top_k: int
-    session_doc_score_threshold: float
-    session_doc_ttl_hours: int
-    session_doc_chunk_size: int
-    session_doc_chunk_overlap: int
     global_doc_top_k: int
     global_doc_score_threshold: float
     rag_port: int
@@ -49,11 +44,6 @@ class RAGSettings:
             rag_min_legal_evidence=int(os.getenv("RAG_MIN_LEGAL_EVIDENCE", "2")),
             legal_retrieval_rpc_name=os.getenv("LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_v6").strip(),
             legacy_legal_retrieval_rpc_name=os.getenv("LEGACY_LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_v4").strip(),
-            session_doc_top_k=int(os.getenv("SESSION_DOC_TOP_K", "5")),
-            session_doc_score_threshold=float(os.getenv("SESSION_DOC_SCORE_THRESHOLD", "0.60")),
-            session_doc_ttl_hours=int(os.getenv("SESSION_DOC_TTL_HOURS", "24")),
-            session_doc_chunk_size=int(os.getenv("SESSION_DOC_CHUNK_SIZE", "900")),
-            session_doc_chunk_overlap=int(os.getenv("SESSION_DOC_CHUNK_OVERLAP", "120")),
             global_doc_top_k=int(os.getenv("GLOBAL_DOC_TOP_K", "5")),
             global_doc_score_threshold=float(os.getenv("GLOBAL_DOC_SCORE_THRESHOLD", "0.60")),
             rag_port=int(os.getenv("RAG_PORT", "8000")),

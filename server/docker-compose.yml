@@ -9,3 +9,14 @@ services:
     env_file:
       - ./RAG/.env
     restart: unless-stopped
+
+  fishy-yolo:
+    build:
+      context: ./Yolo
+      dockerfile: Dockerfile
+    container_name: fishy-yolo
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./Yolo/.env
+    restart: unless-stopped

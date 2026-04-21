@@ -50,15 +50,6 @@ class RetrievalService:
     def extract_km(self, query: str) -> Optional[float]:
         return extract_km(query)
 
-    def has_session_docs(self, session_id: Optional[str]) -> bool:
-        if not session_id:
-            return False
-        try:
-            return self.session_doc_service.has_session_docs(session_id)
-        except Exception as exc:
-            logger.warning("session doc presence check failed | reason=%s", exc)
-            return False
-
     def has_global_docs(self) -> bool:
         try:
             return self.global_doc_service.has_global_docs()
@@ -74,7 +65,7 @@ class RetrievalService:
         query_vehicle_type: str = "khac",
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        _ = session_id  # giu tham so de khong vo interface cu, nhung khong dung session docs nua
+        _ = session_id
 
         if query_km is None:
             query_km = self.extract_km(question)
@@ -150,8 +141,6 @@ class RetrievalService:
         rewrite_confidence: Optional[float] = None,
         session_id: Optional[str] = None,
         history: Optional[List[Dict[str, str]]] = None,
-        skip_session_docs: bool = False,
-        skip_global_docs: bool = False,
     ) -> Dict[str, Any]:
         t0 = time.perf_counter()
         effective_question = (effective_question or question or "").strip()
@@ -315,13 +304,6 @@ class RetrievalService:
             "global_doc_top_score": global_doc_top_score,
             "used_global_docs": used_global_docs,
 
-            # giu lai key cu de frontend khong vo, nhung session docs da tat
-            "session_doc_results": [],
-            "session_doc_hits": 0,
-            "session_doc_source_count": 0,
-            "session_doc_top_score": 0.0,
-            "used_session_docs": False,
-
             "fallback_to_legal_db": fallback_to_legal_db,
             "legal_results": legal_results,
             "candidate_results": candidate_hits,
@@ -347,36 +329,6 @@ class RetrievalService:
             "retrieval_time_ms": retrieval_time_ms,
             "rerank_time_ms": rerank_time_ms,
         }
-
-    def _session_docs_sufficient(
-        self,
-        question: str,
-        hits: List[Dict[str, Any]],
-        intent: Optional[str],
-        action: Optional[str],
-        query_vehicle_type: str,
-        query_km: Optional[float],
-    ) -> bool:
-        ready, above_threshold = self._meets_evidence_threshold(
-            hits=hits,
-            min_score=self.settings.session_doc_score_threshold,
-            min_evidence=1,
-        )
-        match_count, topic_mismatch = self._evaluate_trusted_hits(
-            question=question,
-            hits=hits,
-            query_vehicle_type=query_vehicle_type,
-            intent=intent,
-            action=action,
-            query_km=query_km,
-        )
-        logger.info(
-            "session doc quality | above_threshold=%s | match_count=%s | topic_mismatch=%s",
-            above_threshold,
-            match_count,
-            topic_mismatch,
-        )
-        return ready and match_count > 0 and not topic_mismatch
 
     def _global_docs_sufficient(
         self,

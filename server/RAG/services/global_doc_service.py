@@ -55,7 +55,6 @@ class GlobalDocService:
         return self.noidung2_ingest.ingest_document(
             upload_file=upload_file,
             file_bytes=file_bytes,
-            scope="global",
             uploaded_by=uploaded_by or "admin",
             so_hieu=so_hieu,
             ten_van_ban=ten_van_ban,

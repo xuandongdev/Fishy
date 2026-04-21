@@ -61,9 +61,6 @@ def create_chat_router(
                 "used_global_docs": retrieval.get("used_global_docs", False),
                 "global_doc_hits": retrieval.get("global_doc_hits", 0),
                 "global_doc_top_score": retrieval.get("global_doc_top_score", 0.0),
-                "used_session_docs": False,
-                "session_doc_hits": 0,
-                "session_doc_source_count": 0,
                 "legal_results": len(retrieval["legal_results"]),
                 "candidate_results": len(retrieval["candidate_results"]),
                 "final_hits": len(retrieval["combined_results"]),
@@ -74,7 +71,6 @@ def create_chat_router(
             "meta": {
                 "used_legal_retrieval": True,
                 "used_global_docs": retrieval.get("used_global_docs", False),
-                "used_session_docs": False,
                 "source_count": len(answer_bundle["sources"]),
                 "retrieval_time_ms": retrieval.get("retrieval_time_ms", 0.0),
                 "rerank_time_ms": retrieval.get("rerank_time_ms", 0.0),
