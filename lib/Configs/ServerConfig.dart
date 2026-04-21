@@ -6,7 +6,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 class ServerConfig {
   static const int _ragPort = 8000;
   static const int _yoloPort = 8001;
-  static const int _legalIngestPort = 8010;
   static const int _supabasePort = 54321;
 
   static String get _baseIp {
@@ -30,9 +29,6 @@ class ServerConfig {
   static String get ragBaseUrl => _envUrl('RAG_BASE_URL') ?? "http://$_baseIp:$_ragPort";
 
   static String get yoloBaseUrl => _envUrl('YOLO_BASE_URL') ?? "http://$_baseIp:$_yoloPort";
-
-  static String get legalIngestBaseUrl =>
-      _envUrl('LEGAL_INGEST_BASE_URL') ?? "http://$_baseIp:$_legalIngestPort";
 
   static String get supabaseLocalUrl =>
       _envUrl('SUPABASE_LOCAL_URL') ?? "http://$_baseIp:$_supabasePort";

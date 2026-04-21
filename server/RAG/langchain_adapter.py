@@ -380,20 +380,8 @@ class LangChainAdapter:
             history=history,
         )
         final_hits = retrieval.get("combined_results", [])
-        min_score = (
-            self.settings.global_doc_score_threshold
-            if retrieval.get("used_global_docs")
-            else (
-                self.settings.session_doc_score_threshold
-                if retrieval.get("used_session_docs")
-                else self.settings.rag_legal_score_threshold
-            )
-        )
-        min_evidence = (
-            1
-            if retrieval.get("used_global_docs") or retrieval.get("used_session_docs") or intent == "giai_thich_chung"
-            else self.settings.rag_min_legal_evidence
-        )
+        min_score = self.settings.global_doc_score_threshold if retrieval.get("used_global_docs") else self.settings.rag_legal_score_threshold
+        min_evidence = 1 if retrieval.get("used_global_docs") or intent == "giai_thich_chung" else self.settings.rag_min_legal_evidence
         evidence = self.answer_service.assess_context(
             question=effective_question,
             hits=final_hits,
@@ -407,7 +395,6 @@ class LangChainAdapter:
                 "is_followup": is_followup,
                 "rewrite_confidence": rewrite_confidence,
                 "topic_mismatch": retrieval.get("topic_mismatch", False),
-                "used_session_docs": retrieval.get("used_session_docs", False),
                 "min_score_override": min_score,
                 "min_evidence_override": min_evidence,
             },
@@ -421,9 +408,7 @@ class LangChainAdapter:
             retrieval.get("km_match_count", 0),
         )
 
-        if (retrieval.get("used_global_docs") or retrieval.get("used_session_docs")) and (
-            not final_hits or evidence["insufficient_context"]
-        ):
+        if retrieval.get("used_global_docs") and (not final_hits or evidence["insufficient_context"]):
             retrieval = self.retrieval_service.retrieve_context(
                 question=effective_question,
                 original_question=original_question,
@@ -435,8 +420,6 @@ class LangChainAdapter:
                 rewrite_confidence=rewrite_confidence,
                 session_id=session_id,
                 history=history,
-                skip_session_docs=True,
-                skip_global_docs=True,
             )
             final_hits = retrieval.get("combined_results", [])
             evidence = self.answer_service.assess_context(
@@ -481,7 +464,6 @@ class LangChainAdapter:
                 "is_followup": is_followup,
                 "rewrite_confidence": rewrite_confidence,
                 "topic_mismatch": retrieval.get("topic_mismatch", False),
-                "used_session_docs": retrieval.get("used_session_docs", False),
                 "min_score_override": min_score,
                 "min_evidence_override": min_evidence,
             },
@@ -496,7 +478,7 @@ class LangChainAdapter:
         )
 
         if answer_bundle.get("insufficient_context"):
-            if retrieval.get("used_global_docs") or retrieval.get("used_session_docs"):
+            if retrieval.get("used_global_docs"):
                 retrieval = self.retrieval_service.retrieve_context(
                     question=effective_question,
                     original_question=original_question,
@@ -508,8 +490,6 @@ class LangChainAdapter:
                     rewrite_confidence=rewrite_confidence,
                     session_id=session_id,
                     history=history,
-                    skip_session_docs=True,
-                    skip_global_docs=True,
                 )
                 final_hits = retrieval.get("combined_results", [])
                 if final_hits:
@@ -794,9 +774,6 @@ class LangChainAdapter:
             "used_global_docs": retrieval.get("used_global_docs", False),
             "global_doc_hits": retrieval.get("global_doc_hits", 0),
             "global_doc_top_score": retrieval.get("global_doc_top_score", 0.0),
-            "used_session_docs": retrieval.get("used_session_docs", False),
-            "session_doc_hits": retrieval.get("session_doc_hits", 0),
-            "session_doc_source_count": retrieval.get("session_doc_source_count", 0),
             "candidate_results": len(retrieval.get("candidate_results", [])),
             "final_hits": len(retrieval.get("combined_results", [])),
             "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),

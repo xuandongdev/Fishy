@@ -5,10 +5,6 @@ trusted_rag:
 cd D:\Fishy\server\RAG
 uvicorn trusted_rag_app:app --host 0.0.0.0 --port 8000 --reload
 
-legal_ingest:
-cd D:\Fishy\server\RAG
-uvicorn legal_ingest_app:app --host 0.0.0.0 --port 8010 --reload
-
 yolo:
 cd D:\Fishy\server\Yolo
 uvicorn app:app --host 0.0.0.0 --port 8001 --reload
@@ -25,3 +21,12 @@ danh_gia_055:
 cd D:\Fishy\server\RAG
 $env:MATCH_THRESHOLD='0.55'
 ..\.venv\Scripts\python.exe danh_gia_rag.py --mode full --eval-file danh_gia_rag.jsonl --run-tag custom_t055_k5 --predictions-file danh_gia_rag/danh_gia_055/rag_predictions_custom_t055_k5.jsonl --scores-file danh_gia_rag/danh_gia_055/rag_scores_custom_t055_k5.jsonl --report-csv danh_gia_rag/danh_gia_055/rag_evaluation_report_custom_t055_k5.csv --summary-json danh_gia_rag/danh_gia_055/rag_evaluation_summary_custom_t055_k5.json
+
+
+DOCKER:
+
+cd D:\Fishy\server
+python .\upserver.py --port 8000 --key rag_url
+
+cd D:\Fishy\server
+python .\upserver.py --port 8001 --key yolo_url

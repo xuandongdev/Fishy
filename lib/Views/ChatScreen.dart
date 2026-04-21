@@ -276,14 +276,6 @@ class _ChatMessagesWidgetState extends State<ChatMessagesWidget> {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.attach_file),
-              title: const Text('Tai tai lieu PDF/DOCX'),
-              onTap: () {
-                Navigator.pop(ctx);
-                context.read<ChatViewModel>().uploadSessionDocument();
-              },
-            ),
-            ListTile(
               leading: const Icon(Icons.camera_alt),
               title: const Text('Chụp để nhận diện'),
               onTap: () {

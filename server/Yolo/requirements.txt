@@ -1,8 +1,8 @@
 flask
-ultralytics
 opencv-python-headless
 numpy
 fastapi
 uvicorn
 pillow
 ultralytics
+python-multipart

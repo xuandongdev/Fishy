@@ -1,3 +1,4 @@
+import base64
 import logging
 import os
 import sys
@@ -7,20 +8,21 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
+from starlette.datastructures import UploadFile as StarletteUploadFile
 from ultralytics import YOLO
 
 # ======================================================
 # 1. CẤU HÌNH - CHỈ CẦN HARD CODE Ở ĐÂY
 # ======================================================
-MODEL_PATH = r"D:/Fishy/server/Yolo/11s2.pt"
+MODEL_PATH = os.getenv("MODEL_PATH", "/app/11s2.pt")
 
 # Hard code tối đa 2 file class.
 # - Để None hoặc "" nếu không dùng.
 # - Nếu chỉ có CLASS_1_PATH  -> dùng class_1
 # - Nếu có cả 2            -> ghép class_1 + class_2 theo từng dòng
 # - Nếu cả 2 đều trống     -> fallback sang model.names
-CLASS_1_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_en.txt"
-CLASS_2_PATH: Optional[str] = r"D:/Fishy/server/Yolo/classes_vie.txt"
+CLASS_1_PATH: Optional[str] = r"/app/classes_en.txt"
+CLASS_2_PATH: Optional[str] = r"/app/classes_vie.txt"
 
 LABEL_SEPARATOR = " - "
 USE_MODEL_NAMES_IF_NO_CLASS_FILE = True
@@ -247,7 +249,7 @@ async def extract_upload_file(request: Request, file: Optional[UploadFile]) -> U
     form = await request.form()
     for key in ["file", "image"]:
         value = form.get(key)
-        if isinstance(value, UploadFile):
+        if isinstance(value, (UploadFile, StarletteUploadFile)):
             return value
 
     raise HTTPException(status_code=400, detail="Không tìm thấy file upload (cần field 'file' hoặc 'image')")
@@ -306,8 +308,56 @@ async def detect_lite(
     file_bytes = await upload.read()
     image = decode_upload_image(file_bytes)
     response_data, _ = run_detection(image, conf=conf, imgsz=imgsz)
-    response_data["filename"] = upload.filename
-    return JSONResponse(response_data)
+
+    boxes = [
+        {
+            "x1": float(box["x1"]),
+            "y1": float(box["y1"]),
+            "x2": float(box["x2"]),
+            "y2": float(box["y2"]),
+            "conf": float(box["confidence"]),
+            "name": box["label"],
+        }
+        for box in response_data["boxes"]
+    ]
+
+    return JSONResponse(
+        {
+            "summary": response_data["summary"],
+            "boxes": boxes,
+            "w": response_data["w"],
+            "h": response_data["h"],
+            "filename": upload.filename,
+        }
+    )
+
+
+@app.post("/detect")
+async def detect(
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    conf: float = Form(DEFAULT_CONF),
+    imgsz: int = Form(DEFAULT_IMGSZ),
+) -> JSONResponse:
+    if model is None:
+        raise HTTPException(status_code=500, detail="Model chua duoc load")
+
+    upload = await extract_upload_file(request, file)
+    file_bytes = await upload.read()
+    image = decode_upload_image(file_bytes)
+    response_data, plotted = run_detection(image, conf=conf, imgsz=imgsz)
+
+    ok, encoded = cv2.imencode(".jpg", plotted)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Khong encode duoc anh ket qua")
+
+    return JSONResponse(
+        {
+            "summary": response_data["summary"],
+            "image_base64": base64.b64encode(encoded.tobytes()).decode("utf-8"),
+            "filename": upload.filename,
+        }
+    )
 
 
 @app.post("/detect-image")
