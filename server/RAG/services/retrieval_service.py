@@ -551,7 +551,7 @@ class RetrievalService:
         query_km: Optional[float],
     ) -> int:
         count = 0
-        for item in hits[:3]:
+        for item in hits[:10]:
             text = normalize_legal_text(f"{item.get('label') or ''} {item.get('content') or ''}")
             matched = False
             if query_vehicle_type != "khac" and self._vehicle_text_bonus(query_vehicle_type, text) > 0:
@@ -695,7 +695,7 @@ class RetrievalService:
             return 0.12
         if query_action == "qua_toc_do" and re.search(r"\b(toc do|km/h|km)\b", normalized):
             return 0.12
-        if query_action == "nong_do_con" and re.search(r"\b(nong do con|con|bia ruou)\b", normalized):
+        if query_action == "nong_do_con" and re.search(r"\b(nong do con|co con|bia ruou)\b", normalized):
             return 0.12
         if query_action == "khong_doi_mu" and re.search(r"\b(mu bao hiem|doi mu)\b", normalized):
             return 0.12

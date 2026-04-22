@@ -73,7 +73,7 @@ ACTION_PATTERNS = {
     ],
     "nong_do_con": [
         r"nong do con",
-        r"\bcon\b",
+        r"co con",
         r"bia ruou",
     ],
     "khong_doi_mu": [
@@ -169,7 +169,10 @@ def detect_legal_intent(query: str) -> str:
     q = normalize_legal_text(query)
     if not q:
         return "followup_khong_ro"
-    if re.search(r"\b(phat bao nhieu|muc phat|bao nhieu tien|phat sao|bi phat bao nhieu)\b", q):
+    if re.search(
+        r"\b(phat bao nhieu|muc phat|bao nhieu tien|phat sao|bi phat bao nhieu|co bi phat|co bi xu phat|bi xu phat khong|bi phat khong)\b",
+        q,
+    ):
         return "muc_phat"
     if re.search(r"\b(can cu|dieu nao|khoan nao|diem nao|nghi dinh nao|can cu phap ly)\b", q):
         return "can_cu_phap_ly"

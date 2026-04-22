@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional, Set
 
 from openai import OpenAI
@@ -19,6 +20,14 @@ DECREE_RE = re.compile(r"\bnghi dinh\s*\d+/\d+/nd-cp\b", re.I)
 ARTICLE_RE = re.compile(r"\bdieu\s*\d+\b", re.I)
 CLAUSE_RE = re.compile(r"\bkhoan\s*\d+\b", re.I)
 POINT_RE = re.compile(r"\bdiem\s*[a-zd]\b", re.I)
+SOURCE_TOKEN_LINE_RE = re.compile(r"(?im)^[ \t]*ngu[oôồốỗộơờớởỡợ]n\s*:\s*\[NGUON_\d+\]\s*$")
+SOURCE_TOKEN_RE = re.compile(r"\[NGUON_\d+\]")
+INSUFFICIENT_SIGNAL_PATTERNS = (
+    re.compile(r"\b(chua|khong)\s+du\s+can\s+cu\b", re.I),
+    re.compile(r"\bdu\s+lieu\b.*\b(ket\s+luan|xac\s+dinh)\b", re.I),
+    re.compile(r"\b(khong|chua)\s+the\s+(ket\s+luan|xac\s+dinh)\s+(chinh\s+xac|chac\s+chan)\b", re.I),
+    re.compile(r"\bkho\s+du\s+lieu\b", re.I),
+)
 
 
 class AnswerService:
@@ -187,6 +196,12 @@ class AnswerService:
             if reason == "ok":
                 reason = fallback["reason"]
 
+        answer = self._sanitize_answer(answer)
+        if self.is_insufficient_answer(answer):
+            insufficient_context = True
+            if reason == "ok":
+                reason = "model_reported_insufficient_context"
+
         logger.info("answer service output | answer=%s", answer[:500])
         return {
             "answer": answer,
@@ -305,6 +320,12 @@ class AnswerService:
     def _format_source_label(self, item: Dict[str, Any]) -> str:
         return format_user_facing_source(item)
 
+    def _sanitize_answer(self, answer: str) -> str:
+        cleaned = SOURCE_TOKEN_LINE_RE.sub("", answer or "")
+        cleaned = SOURCE_TOKEN_RE.sub("", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
     def _history_text(self, history: List[Dict[str, str]]) -> str:
         turns: List[str] = []
         for item in history[-8:]:
@@ -359,4 +380,12 @@ class AnswerService:
         return excerpt or (content or "")[:max_len].strip()
 
     def is_insufficient_answer(self, answer: str) -> bool:
-        return self._normalize_text(answer) == self._normalize_text(SAFE_INSUFFICIENT_ANSWER)
+        normalized = unicodedata.normalize("NFD", self._normalize_text(answer))
+        normalized = "".join(ch for ch in normalized if unicodedata.category(ch) != "Mn").replace("đ", "d")
+        safe_normalized = unicodedata.normalize("NFD", self._normalize_text(SAFE_INSUFFICIENT_ANSWER))
+        safe_normalized = "".join(ch for ch in safe_normalized if unicodedata.category(ch) != "Mn").replace("đ", "d")
+        if normalized == safe_normalized:
+            return True
+        return all(pattern.search(normalized) for pattern in INSUFFICIENT_SIGNAL_PATTERNS[:2]) or any(
+            pattern.search(normalized) for pattern in INSUFFICIENT_SIGNAL_PATTERNS
+        )

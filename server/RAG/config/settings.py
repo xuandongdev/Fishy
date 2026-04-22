@@ -26,6 +26,8 @@ class RAGSettings:
     rerank_model_name: str
     rerank_candidate_count: int
     rerank_final_top_k: int
+    chat_metrics_csv_enabled: bool
+    chat_metrics_csv_path: str
 
     @classmethod
     def from_env(cls) -> "RAGSettings":
@@ -40,16 +42,18 @@ class RAGSettings:
             answer_model_name=os.getenv("ANSWER_MODEL", "gpt-4o-mini").strip(),
             classifier_model_name=os.getenv("CLASSIFIER_MODEL", "gpt-4.1-nano").strip(),
             classifier_timeout_seconds=float(os.getenv("CLASSIFIER_TIMEOUT_SECONDS", "2.5")),
-            rag_legal_score_threshold=float(os.getenv("RAG_LEGAL_SCORE_THRESHOLD", "0.60")),
+            rag_legal_score_threshold=float(os.getenv("RAG_LEGAL_SCORE_THRESHOLD", "0.45")),
             rag_min_legal_evidence=int(os.getenv("RAG_MIN_LEGAL_EVIDENCE", "2")),
             legal_retrieval_rpc_name=os.getenv("LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_v6").strip(),
             legacy_legal_retrieval_rpc_name=os.getenv("LEGACY_LEGAL_RETRIEVAL_RPC_NAME", "match_legal_docs_v4").strip(),
             global_doc_top_k=int(os.getenv("GLOBAL_DOC_TOP_K", "5")),
-            global_doc_score_threshold=float(os.getenv("GLOBAL_DOC_SCORE_THRESHOLD", "0.60")),
+            global_doc_score_threshold=float(os.getenv("GLOBAL_DOC_SCORE_THRESHOLD", "0.45")),
             rag_port=int(os.getenv("RAG_PORT", "8000")),
             rerank_model_name=os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3").strip(),
             rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "10")),
             rerank_final_top_k=int(os.getenv("RERANK_FINAL_TOP_K", "5")),
+            chat_metrics_csv_enabled=os.getenv("CHAT_METRICS_CSV_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+            chat_metrics_csv_path=os.getenv("CHAT_METRICS_CSV_PATH", "server/RAG/output/live_chat_metrics.csv").strip(),
         )
 
     @property

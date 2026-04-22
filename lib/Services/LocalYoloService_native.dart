@@ -93,7 +93,7 @@ class LocalYoloService {
     await init();
     if (!_ready) {
       return YoloLiteResponse(
-        summaryText: 'YOLO on-device chua san sang',
+        summaryText: 'YOLO on-device chưa sẵn sàng',
         boxes: const [],
         width: 0,
         height: 0,
@@ -103,7 +103,7 @@ class LocalYoloService {
     final decoded = img.decodeImage(bytes);
     if (decoded == null) {
       return YoloLiteResponse(
-        summaryText: 'Khong doc duoc anh',
+        summaryText: 'Không đọc được ảnh',
         boxes: const [],
         width: 0,
         height: 0,
@@ -131,7 +131,7 @@ class LocalYoloService {
     await init();
     if (!_ready) {
       return YoloLiteResponse(
-        summaryText: 'YOLO on-device chua san sang',
+        summaryText: 'YOLO on-device chưa sẵn sàng',
         boxes: const [],
         width: 0,
         height: 0,
@@ -141,7 +141,7 @@ class LocalYoloService {
     final converted = _cameraImageToImage(frame);
     if (converted == null) {
       return YoloLiteResponse(
-        summaryText: 'Khong doi duoc frame camera',
+        summaryText: 'Không đọc được khung hình camera',
         boxes: const [],
         width: 0,
         height: 0,
@@ -462,7 +462,7 @@ class LocalYoloService {
   }
 
   String _buildSummary(List<YoloBox> boxes) {
-    if (boxes.isEmpty) return 'Khong phat hien bien bao';
+    if (boxes.isEmpty) return 'FISHY không phát hiện biển báo';
 
     final orderedNames = <String>[];
     for (final box in boxes) {
@@ -471,7 +471,7 @@ class LocalYoloService {
       }
     }
 
-    return orderedNames.take(3).join(', ');
+    return 'FISHY đã phát hiện: ${orderedNames.take(5).join(', ')}';
   }
 
   String _labelFor(int classId) {

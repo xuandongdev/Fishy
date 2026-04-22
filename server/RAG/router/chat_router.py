@@ -4,7 +4,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from config.settings import RAGSettings
 from langchain_adapter import LangChainAdapter
+from services.chat_metrics_logger import ChatMetricsLogger, safe_log_chat_metrics
 from services.global_doc_service import GlobalDocService
 from services.retrieval_service import RetrievalService
 
@@ -21,16 +23,26 @@ def create_chat_router(
     retrieval_service: RetrievalService,
     langchain_adapter: Optional[LangChainAdapter] = None,
     global_doc_service: Optional[GlobalDocService] = None,
+    settings: Optional[RAGSettings] = None,
 ) -> APIRouter:
     router = APIRouter()
+    metrics_logger = None
+    if settings and settings.chat_metrics_csv_enabled:
+        metrics_logger = ChatMetricsLogger(settings.chat_metrics_csv_path)
 
     async def handle_question(req: ChatAskRequest) -> Dict[str, Any]:
         if langchain_adapter is not None:
-            return await langchain_adapter.chat(
+            result = await langchain_adapter.chat(
                 question=req.question,
                 session_id=req.session_id,
                 chat_history=req.history,
             )
+            safe_log_chat_metrics(
+                metrics_logger,
+                request={"question": req.question, "session_id": req.session_id},
+                response=result,
+            )
+            return result
 
         retrieval = retrieval_service.retrieve_context(
             question=req.question,
@@ -50,7 +62,7 @@ def create_chat_router(
                 "query_km": retrieval.get("query_km"),
             },
         )
-        return {
+        result = {
             "success": True,
             "answer": answer_bundle["answer"],
             "route": "legal_rag",
@@ -80,6 +92,12 @@ def create_chat_router(
                 "query_km": retrieval.get("query_km"),
             },
         }
+        safe_log_chat_metrics(
+            metrics_logger,
+            request={"question": req.question, "session_id": req.session_id},
+            response=result,
+        )
+        return result
 
     @router.post("/api/chat/ask")
     async def ask_question(req: ChatAskRequest) -> Dict[str, Any]:
