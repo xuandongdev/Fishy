@@ -1,4 +1,4 @@
 ﻿metric_key,metric_label,mean_value
-hit_at_k,Hit@K,0.727273
-recall_at_k,Recall@K,0.727273
-mrr,MRR,0.505303
+hit_at_k,Hit@K,0.820513
+recall_at_k,Recall@K,0.820513
+mrr,MRR,0.666453

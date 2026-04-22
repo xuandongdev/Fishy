@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import ast
 from typing import Any, Dict, List, Optional, Tuple
 
 from sentence_transformers import CrossEncoder, SentenceTransformer
@@ -246,6 +247,7 @@ class RetrievalService:
                 query_vehicle_type=query_vehicle_type,
                 action=action,
                 query_km=query_km,
+                question_text=effective_question,
             )
             topic_mismatch = bool(legal_results) and intent_match_count == 0
         logger.info(
@@ -428,6 +430,7 @@ class RetrievalService:
                     "section_path": row.get("section_path") or row.get("duong_dan_phan_cap"),
                     "page_start": row.get("page_start"),
                     "page_end": row.get("page_end"),
+                    "rela": self._normalize_rela(row.get("rela")),
                     "dieu": self._extract_legal_unit_from_nodes(row, ancestors, "DIEU"),
                     "khoan": self._extract_legal_unit_from_nodes(row, ancestors, "KHOAN"),
                     "diem": self._extract_legal_unit_from_nodes(row, ancestors, "DIEM"),
@@ -549,6 +552,7 @@ class RetrievalService:
         query_vehicle_type: str,
         action: Optional[str],
         query_km: Optional[float],
+        question_text: str = "",
     ) -> int:
         count = 0
         for item in hits[:10]:
@@ -557,6 +561,8 @@ class RetrievalService:
             if query_vehicle_type != "khac" and self._vehicle_text_bonus(query_vehicle_type, text) > 0:
                 matched = True
             if action and self._action_bonus(action, text) > 0:
+                matched = True
+            if self._rela_bonus(question_text=question_text, item=item) > 0:
                 matched = True
             if query_km is not None and item.get("km_phu_hop") is True:
                 matched = True
@@ -589,6 +595,8 @@ class RetrievalService:
                 matched = True
             if action and self._action_bonus(action, text) > 0:
                 matched = True
+            if self._rela_bonus(question_text=question, item=item, fallback_text=text) > 0:
+                matched = True
             if query_km is not None and item.get("km_phu_hop") is True:
                 matched = True
             if intent == "doi_tuong_ap_dung" and any(token in text for token in ("gplx", "giay phep", "hang", "phan hang")):
@@ -609,6 +617,7 @@ class RetrievalService:
             return []
 
         query_action = action or detect_legal_action(question)
+        normalized_question = normalize_legal_text(question)
         pairs = []
         for item in hits:
             content = (item.get("content") or "").strip()
@@ -633,6 +642,7 @@ class RetrievalService:
             vehicle_bonus = self._vehicle_text_bonus(query_vehicle_type, text)
             km_bonus = self._km_bonus(query_km, item.get("min_km"), item.get("max_km"), text)
             action_bonus = self._action_bonus(query_action, text)
+            rela_bonus = self._rela_bonus(question_text=normalized_question, item=item, fallback_text=text)
             km_match_bonus = 0.0
             if query_km is not None and item.get("km_phu_hop") is True:
                 km_match_bonus = 0.45
@@ -645,12 +655,14 @@ class RetrievalService:
             enriched["km_bonus"] = float(km_bonus)
             enriched["km_match_bonus"] = float(km_match_bonus)
             enriched["action_bonus"] = float(action_bonus)
+            enriched["rela_bonus"] = float(rela_bonus)
             enriched["final_rerank_score"] = float(
                 hybrid_score * 0.65
                 + float(ce_score) * 0.15
                 + vehicle_bonus
                 + km_bonus
                 + action_bonus
+                + rela_bonus
                 + km_match_bonus
             )
             reranked.append(enriched)
@@ -699,6 +711,8 @@ class RetrievalService:
             return 0.12
         if query_action == "khong_doi_mu" and re.search(r"\b(mu bao hiem|doi mu)\b", normalized):
             return 0.12
+        if query_action == "vao_cao_toc" and re.search(r"\b(cao toc|duong cao toc)\b", normalized):
+            return 0.12
         if query_action in {"cho_qua_nguoi", "cho_qua_so_nguoi"} and re.search(
             r"\b(cho qua|so nguoi|tong 3|cho 3)\b", normalized
         ):
@@ -706,3 +720,55 @@ class RetrievalService:
         if query_action == "di_sai_lan" and re.search(r"\b(lan duong|phan duong)\b", normalized):
             return 0.12
         return 0.0
+
+    def _normalize_rela(self, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [normalize_legal_text(str(item)) for item in value if str(item).strip()]
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return []
+            if raw.startswith("[") and raw.endswith("]"):
+                try:
+                    parsed = ast.literal_eval(raw)
+                    if isinstance(parsed, list):
+                        return [normalize_legal_text(str(item)) for item in parsed if str(item).strip()]
+                except Exception:
+                    pass
+            return [normalize_legal_text(part) for part in re.split(r"[;,|]", raw) if part.strip()]
+        return []
+
+    def _rela_bonus(self, question_text: str, item: Dict[str, Any], fallback_text: str = "") -> float:
+        rela_terms = [term for term in (item.get("rela") or []) if term]
+        if not rela_terms:
+            return 0.0
+
+        normalized_question = normalize_legal_text(question_text or "")
+        if not normalized_question and fallback_text:
+            normalized_question = normalize_legal_text(fallback_text)
+        if not normalized_question:
+            return 0.0
+
+        score = 0.0
+        for term in rela_terms:
+            if term and term in normalized_question:
+                score = max(score, 0.18 if len(term.split()) >= 2 else 0.12)
+
+        query_tokens = {
+            token
+            for token in re.findall(r"\w+", normalized_question)
+            if len(token) >= 3 and token not in {"bao", "nhieu", "phat", "tien", "theo", "nguoi"}
+        }
+        if query_tokens:
+            for term in rela_terms:
+                term_tokens = {token for token in re.findall(r"\w+", term) if len(token) >= 3}
+                if not term_tokens:
+                    continue
+                overlap = len(query_tokens & term_tokens)
+                if overlap >= 2:
+                    score = max(score, 0.2)
+                elif overlap == 1:
+                    score = max(score, 0.1)
+        return score

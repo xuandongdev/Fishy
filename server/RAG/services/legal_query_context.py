@@ -81,6 +81,14 @@ ACTION_PATTERNS = {
         r"khong doi mu bao hiem",
         r"mu bao hiem",
     ],
+    "vao_cao_toc": [
+        r"vao cao toc",
+        r"di vao cao toc",
+        r"chay vao cao toc",
+        r"duong cao toc",
+        r"tren cao toc",
+        r"cao toc",
+    ],
     "cho_qua_so_nguoi": [
         r"cho qua",
         r"qua so nguoi",
@@ -269,6 +277,8 @@ def _action_phrase(action: Optional[str], question: str, km_value: Optional[floa
         return "vi pham nong do con"
     if action == "khong_doi_mu":
         return "khong doi mu bao hiem"
+    if action == "vao_cao_toc":
+        return "di vao cao toc"
     if action == "cho_qua_so_nguoi":
         if "tong 3" in normalized:
             return "cho qua so nguoi quy dinh"

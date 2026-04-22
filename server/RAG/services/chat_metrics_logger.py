@@ -1,10 +1,9 @@
 import csv
-import json
 import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 logger = logging.getLogger("CHAT_METRICS_LOGGER")
@@ -23,33 +22,15 @@ CSV_FIELDS = [
     "retrieval_time_ms",
     "rerank_time_ms",
     "gen_time_ms",
-    "detected_vehicle_type",
-    "intent",
-    "action",
-    "query_km",
     "used_global_docs",
     "global_doc_hits",
     "global_doc_top_score",
     "legal_results",
     "candidate_results",
     "final_hits",
-    "km_match_count",
     "intent_match_count",
     "topic_mismatch",
-    "final_fallback_reason",
-    "rpc_selected",
-    "rerouted_from_general_to_legal",
     "retrieval_skipped",
-    "primary_ids",
-    "source_labels",
-    "contexts",
-    "reference_answer",
-    "gold_ids",
-    "ground_truth",
-    "context_precision",
-    "context_recall",
-    "faithfulness",
-    "answer_relevancy",
 ]
 
 
@@ -63,8 +44,8 @@ class ChatMetricsLogger:
         row = self._build_row(request=request, response=response)
         with self._lock:
             file_exists = self.output_path.exists()
-            with self.output_path.open("a", encoding="utf-8", newline="") as f:
-                writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+            with self.output_path.open("a", encoding="utf-8", newline="") as file_obj:
+                writer = csv.DictWriter(file_obj, fieldnames=CSV_FIELDS)
                 if not file_exists:
                     writer.writeheader()
                 writer.writerow(row)
@@ -74,68 +55,54 @@ class ChatMetricsLogger:
         meta = response.get("meta") or {}
         evaluation = response.get("evaluation") or {}
         timings = evaluation.get("timings") or {}
-        hits = evaluation.get("hits") or []
 
         return {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "session_id": response.get("session_id") or request.get("session_id"),
-            "route": response.get("route"),
-            "question": request.get("question"),
-            "effective_question": meta.get("effective_question") or debug.get("effective_question"),
-            "answer": response.get("answer"),
+            "session_id": response.get("session_id") or request.get("session_id") or "",
+            "route": response.get("route") or meta.get("route_selected") or "",
+            "question": request.get("question") or "",
+            "effective_question": meta.get("effective_question") or debug.get("effective_question") or "",
+            "answer": response.get("answer") or "",
             "used_fallback": response.get("used_fallback"),
-            "answer_insufficient": self._is_insufficient(response),
-            "source_count": meta.get("source_count", len(response.get("sources") or [])),
-            "latency_ms": timings.get("latency_ms"),
-            "retrieval_time_ms": timings.get("retrieval_time_ms"),
-            "rerank_time_ms": timings.get("rerank_time_ms"),
-            "gen_time_ms": timings.get("gen_time_ms"),
-            "detected_vehicle_type": meta.get("detected_vehicle_type") or evaluation.get("detected_vehicle_type"),
-            "intent": meta.get("intent") or debug.get("intent"),
-            "action": meta.get("action") or debug.get("action"),
-            "query_km": meta.get("query_km") or debug.get("query_km"),
-            "used_global_docs": debug.get("used_global_docs"),
-            "global_doc_hits": debug.get("global_doc_hits"),
-            "global_doc_top_score": debug.get("global_doc_top_score"),
-            "legal_results": debug.get("legal_results"),
-            "candidate_results": debug.get("candidate_results"),
-            "final_hits": debug.get("final_hits"),
-            "km_match_count": debug.get("km_match_count"),
-            "intent_match_count": debug.get("intent_match_count"),
-            "topic_mismatch": debug.get("topic_mismatch"),
-            "final_fallback_reason": debug.get("final_fallback_reason"),
-            "rpc_selected": debug.get("rpc_selected"),
-            "rerouted_from_general_to_legal": meta.get("rerouted_from_general_to_legal"),
-            "retrieval_skipped": meta.get("retrieval_skipped"),
-            "primary_ids": self._json([item.get("primary_id") for item in hits]),
-            "source_labels": self._json([item.get("label") for item in hits]),
-            "contexts": self._json([item.get("content") for item in hits]),
-            "reference_answer": "",
-            "gold_ids": "",
-            "ground_truth": "",
-            "context_precision": self._ragas_metric(evaluation, "context_precision"),
-            "context_recall": self._ragas_metric(evaluation, "context_recall"),
-            "faithfulness": self._ragas_metric(evaluation, "faithfulness"),
-            "answer_relevancy": self._ragas_metric(evaluation, "answer_relevancy"),
+            "answer_insufficient": self._answer_insufficient(response),
+            "source_count": self._coalesce(
+                meta.get("source_count"),
+                len(response.get("sources") or []),
+            ),
+            "latency_ms": self._timing(timings, meta, "latency_ms"),
+            "retrieval_time_ms": self._timing(timings, meta, "retrieval_time_ms"),
+            "rerank_time_ms": self._timing(timings, meta, "rerank_time_ms"),
+            "gen_time_ms": self._timing(timings, meta, "gen_time_ms"),
+            "used_global_docs": self._coalesce(debug.get("used_global_docs"), meta.get("used_global_docs"), False),
+            "global_doc_hits": self._coalesce(debug.get("global_doc_hits"), 0),
+            "global_doc_top_score": self._coalesce(debug.get("global_doc_top_score"), 0.0),
+            "legal_results": self._coalesce(debug.get("legal_results"), 0),
+            "candidate_results": self._coalesce(debug.get("candidate_results"), 0),
+            "final_hits": self._coalesce(debug.get("final_hits"), 0),
+            "intent_match_count": self._coalesce(debug.get("intent_match_count"), 0),
+            "topic_mismatch": self._coalesce(debug.get("topic_mismatch"), False),
+            "retrieval_skipped": self._coalesce(meta.get("retrieval_skipped"), False),
         }
 
-    def _is_insufficient(self, response: Dict[str, Any]) -> Optional[bool]:
+    def _timing(self, timings: Dict[str, Any], meta: Dict[str, Any], key: str) -> Any:
+        if key in timings and timings.get(key) is not None:
+            return timings.get(key)
+        return meta.get(key)
+
+    def _answer_insufficient(self, response: Dict[str, Any]) -> Optional[bool]:
         meta = response.get("meta") or {}
-        if "answer_insufficient" in meta:
+        if meta.get("answer_insufficient") is not None:
             return meta.get("answer_insufficient")
         answer = str(response.get("answer") or "").lower()
         if not answer:
             return None
         return "chua du can cu" in answer or "chưa đủ căn cứ" in answer
 
-    def _ragas_metric(self, evaluation: Dict[str, Any], key: str) -> Any:
-        ragas = evaluation.get("ragas") or {}
-        if key in ragas:
-            return ragas.get(key)
-        return evaluation.get(key)
-
-    def _json(self, value: List[Any]) -> str:
-        return json.dumps(value, ensure_ascii=False)
+    def _coalesce(self, *values: Any) -> Any:
+        for value in values:
+            if value is not None:
+                return value
+        return None
 
 
 def safe_log_chat_metrics(

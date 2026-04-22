@@ -1,0 +1,32 @@
+timestamp,session_id,route,question,effective_question,answer,used_fallback,answer_insufficient,source_count,latency_ms,retrieval_time_ms,rerank_time_ms,gen_time_ms,used_global_docs,global_doc_hits,global_doc_top_score,legal_results,candidate_results,final_hits,intent_match_count,topic_mismatch,retrieval_skipped
+2026-04-22T17:49:56,f21a2eaa-b41d-48b9-9c64-a267759ba71c,legal_rag,đua xe máy bị phạt bao nhiêu,đua xe máy bị phạt bao nhiêu,"Đua xe máy có thể bị phạt tiền từ 600.000 đồng đến 800.000 đồng nếu vi phạm quy tắc giao thông, cụ thể là không giữ khoảng cách an toàn với xe chạy liền trước. Ngoài ra, nếu điều khiển xe chạy quá tốc độ quy định từ 10 km/h đến 20 km/h, mức phạt sẽ từ 800.000 đồng đến 1.000.000 đồng. 
+
+Nguồn: Nghị định 168/2024/NĐ-CP, Điều 7.",False,False,3,21464.62,16687.35,13710.78,4770.92,False,0,0.0,10,10,5,6,False,False
+2026-04-22T17:50:43,f21a2eaa-b41d-48b9-9c64-a267759ba71c,legal_rag,ô tô vượt đèn đỏ bị phạt như thế nào,ô tô vượt đèn đỏ bị phạt như thế nào,"Ô tô vượt đèn đỏ sẽ bị phạt tiền từ 18.000.000 đồng đến 20.000.000 đồng theo Khoản 9, Điều 6, Nghị định 168/2024/NĐ-CP. 
+
+Nguồn: Nghị định 168/2024/NĐ-CP, Khoản 9, Điều 6.",False,False,3,19078.27,16337.75,12761.31,2737.04,False,0,0.0,10,10,5,9,False,False
+2026-04-22T18:06:20,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,xe máy vào cao tốc bị phạt bao nhiêu,xe máy vào cao tốc bị phạt bao nhiêu,"Xe máy vào cao tốc sẽ bị phạt tiền từ 4.000.000 đồng đến 6.000.000 đồng theo Khoản 7, Điều 7, Nghị định 168/2024/NĐ-CP. 
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,13276.94,11074.36,9555.27,2199.5,False,0,0.0,10,10,5,10,False,False
+2026-04-22T18:10:12,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,đua xe trái phép bị bắt phạt bao nhiêu,đua xe trái phép bị bắt phạt bao nhiêu,"Đua xe trái phép sẽ bị phạt tiền từ 8.000.000 đồng đến 10.000.000 đồng theo Khoản 9, Điều 7, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,12065.54,9745.87,8539.41,2317.08,False,0,0.0,10,10,5,3,False,False
+2026-04-22T18:11:06,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,ô tô chạy quá tốc độ 13km thì phạt bao nhiêu tiền,ô tô chạy quá tốc độ 13km thì phạt bao nhiêu tiền,"Ô tô chạy quá tốc độ 13 km/h sẽ bị phạt tiền từ 4.000.000 đồng đến 6.000.000 đồng theo Khoản 5, Điều 6, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,14167.84,11779.41,10583.7,2386.23,False,0,0.0,10,10,5,10,False,False
+2026-04-22T18:13:21,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,xe máy chạy vượt quá 11km/h thì phạt như thế nào,xe máy chạy vượt quá 11km/h thì phạt như thế nào,"Xe máy chạy vượt quá 11 km/h sẽ bị phạt tiền từ 800.000 đồng đến 1.000.000 đồng theo Khoản 4, Điều 7, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,12018.49,10067.59,8250.42,1948.55,False,0,0.0,10,10,5,10,False,False
+2026-04-22T18:13:59,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,đi bộ vào cao tốc có bị phạt không,đi bộ vào cao tốc có bị phạt không,"Đi bộ vào cao tốc sẽ bị phạt tiền từ 400.000 đồng đến 600.000 đồng theo Điểm a, Khoản 2, Điều 10, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,15255.79,13197.01,11895.76,2056.78,False,0,0.0,10,10,5,8,False,False
+2026-04-22T18:17:22,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,ô tô trốn đo nồng độ cồn thì bị phạt bao nhiêu,ô tô trốn đo nồng độ cồn thì bị phạt bao nhiêu,"Ô tô trốn đo nồng độ cồn sẽ bị phạt tiền từ 30.000.000 đồng đến 40.000.000 đồng theo Điểm b, Khoản 11, Điều 6, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,12874.6,10615.12,9359.92,2257.31,False,0,0.0,10,10,5,10,False,False
+2026-04-22T18:19:11,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,chở quá số người quy định bị phạt bao nhiêu,chở quá số người quy định bị phạt bao nhiêu,"Chở người trên buồng lái quá số lượng quy định sẽ bị phạt tiền từ 600.000 đồng đến 800.000 đồng theo Điểm b, Khoản 2, Điều 6, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,12536.87,10386.72,9318.73,2147.74,False,0,0.0,10,10,5,1,False,False
+
+2026-04-22T18:23:12,b901569d-ffba-4506-afd7-5135ba1899cb,legal_rag,xe máy tống 3 bị phạt bao nhiêu,xe máy tống 3 bị phạt bao nhiêu,"Xe máy chở 3 người bị phạt tiền từ 600.000 đồng đến 800.000 đồng theo Điểm b, Khoản 3, Điều 7, Nghị định 168/2024/NĐ-CP.
+
+Nguồn: Nghị định 168/2024/NĐ-CP.",False,False,3,12362.32,9657.48,8449.91,2702.88,False,0,0.0,10,10,5,6,False,False

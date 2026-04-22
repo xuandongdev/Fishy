@@ -78,6 +78,11 @@ def create_chat_router(
                 "final_hits": len(retrieval["combined_results"]),
                 "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
                 "query_km": retrieval.get("query_km"),
+                "intent_match_count": retrieval.get("intent_match_count", 0),
+                "topic_mismatch": retrieval.get("topic_mismatch", False),
+                "used_global_docs": retrieval.get("used_global_docs", False),
+                "final_fallback_reason": retrieval.get("final_fallback_reason"),
+                "rpc_selected": retrieval.get("rpc_selected"),
                 "effective_question": retrieval.get("effective_question"),
             },
             "meta": {
@@ -90,6 +95,8 @@ def create_chat_router(
                 "detected_vehicle_type": retrieval.get("detected_vehicle_type", "khac"),
                 "effective_question": retrieval.get("effective_question"),
                 "query_km": retrieval.get("query_km"),
+                "retrieval_skipped": False,
+                "answer_insufficient": answer_bundle.get("insufficient_context"),
             },
         }
         safe_log_chat_metrics(

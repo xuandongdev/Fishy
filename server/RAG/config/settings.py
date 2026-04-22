@@ -7,6 +7,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _parse_env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 @dataclass
 class RAGSettings:
     supabase_url: str
@@ -52,8 +64,11 @@ class RAGSettings:
             rerank_model_name=os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3").strip(),
             rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "10")),
             rerank_final_top_k=int(os.getenv("RERANK_FINAL_TOP_K", "5")),
-            chat_metrics_csv_enabled=os.getenv("CHAT_METRICS_CSV_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
-            chat_metrics_csv_path=os.getenv("CHAT_METRICS_CSV_PATH", "server/RAG/output/live_chat_metrics.csv").strip(),
+            chat_metrics_csv_enabled=_parse_env_bool("CHAT_METRICS_CSV_ENABLED", False),
+            chat_metrics_csv_path=os.getenv(
+                "CHAT_METRICS_CSV_PATH",
+                "D:/Fishy/server/RAG/output/live_chat_metrics.csv",
+            ).strip(),
         )
 
     @property

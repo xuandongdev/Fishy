@@ -290,6 +290,7 @@ class LangChainAdapter:
             **result.get("meta", {}),
             "route_selected": route,
             "answer_mode": route,
+            "answer_insufficient": bool("chua du can cu" in self._normalize_text(answer)) if answer else False,
             "classifier_decision": classifier_decision,
             "classifier_raw_output": classifier["raw_output"],
             "classifier_fallback_used": classifier["fallback_used"],

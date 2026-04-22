@@ -45,6 +45,41 @@ SUMMARY_METRICS: List[Tuple[str, str]] = [
     ("answer_relevancy", "Answer Relevancy"),
 ]
 
+COMPARISON_GROUPS: List[Dict[str, Any]] = [
+    {
+        "key": "retrieval_compare",
+        "title": "So Sanh Retrieval Metrics Theo Tung Cau Hinh",
+        "metrics": [
+            ("hit_at_k", "Hit@K"),
+            ("recall_at_k", "Recall@K"),
+            ("mrr", "MRR"),
+        ],
+        "max_value": 1.0,
+    },
+    {
+        "key": "ragas_compare",
+        "title": "So Sanh RAGAS Metrics Theo Tung Cau Hinh",
+        "metrics": [
+            ("context_precision", "Context Precision"),
+            ("context_recall", "Context Recall"),
+            ("faithfulness", "Faithfulness"),
+            ("answer_relevancy", "Answer Relevancy"),
+        ],
+        "max_value": 1.0,
+    },
+    {
+        "key": "timing_compare",
+        "title": "So Sanh Thoi Gian Xu Ly Theo Tung Cau Hinh",
+        "metrics": [
+            ("retrieval_time_ms", "Retrieval"),
+            ("rerank_time_ms", "Rerank"),
+            ("gen_time_ms", "Generation"),
+            ("latency_ms", "Latency"),
+        ],
+        "max_value": None,
+    },
+]
+
 
 RUN_CONFIGS: List[Dict[str, str]] = [
     {
@@ -77,14 +112,6 @@ RUN_CONFIGS: List[Dict[str, str]] = [
         "title": "Danh gia threshold 0.60 k=5",
         "base_name": "threshold_060_k5",
         "out_dir": "server/RAG/danh_gia_rag/danh_gia_060/bieu_do_png",
-        "image_format": "png",
-    },
-    {
-        "jsonl": "server/RAG/danh_gia_rag/danh_gia_065/rag_predictions_ollama_qwen25_7b_t065_k5.jsonl",
-        "csv": "",
-        "title": "Danh gia threshold 0.65 k=5",
-        "base_name": "threshold_065_k5",
-        "out_dir": "server/RAG/danh_gia_rag/danh_gia_065/bieu_do_png",
         "image_format": "png",
     },
 ]
@@ -613,6 +640,89 @@ def build_metric_line_chart_image_seaborn(
     return figure_to_image(fig)
 
 
+def build_grouped_bar_chart_image_seaborn(
+    title: str,
+    metric_labels: Sequence[str],
+    run_labels: Sequence[str],
+    values_by_run: Sequence[Sequence[Optional[float]]],
+    *,
+    width: int = 1200,
+    height: int = 500,
+    max_value: Optional[float] = None,
+) -> Image.Image:
+    if _PLT is None or _SNS is None:
+        raise RuntimeError("Seaborn backend chua duoc khoi tao")
+
+    if not metric_labels or not run_labels or not values_by_run:
+        return build_empty_chart_image_seaborn(title, width, height)
+
+    _SNS.set_theme(style="whitegrid")
+    fig, ax = _PLT.subplots(figsize=(width / 100, height / 100), dpi=100)
+    fig.patch.set_facecolor("#ffffff")
+    ax.set_facecolor("#ffffff")
+
+    num_metrics = len(metric_labels)
+    num_runs = len(run_labels)
+    x_positions = list(range(num_metrics))
+    group_width = 0.8
+    bar_width = group_width / max(num_runs, 1)
+    palette = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#14b8a6"]
+
+    max_seen = 0.0
+    for run_idx, run_label in enumerate(run_labels):
+        offsets = [x - group_width / 2 + (run_idx + 0.5) * bar_width for x in x_positions]
+        raw_values = values_by_run[run_idx]
+        chart_values = [0.0 if value is None else float(value) for value in raw_values]
+        max_seen = max(max_seen, max(chart_values, default=0.0))
+        bars = ax.bar(
+            offsets,
+            chart_values,
+            width=bar_width * 0.92,
+            label=run_label,
+            color=palette[run_idx % len(palette)],
+            edgecolor="#111827",
+            linewidth=0.8,
+        )
+        for bar, raw_value in zip(bars, raw_values):
+            if raw_value is None:
+                continue
+            value = float(raw_value)
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                value + max(0.01, (max_value or max_seen or 1.0) * 0.015),
+                f"{value:.3f}",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                fontweight="bold",
+                color="#102a43",
+                rotation=90,
+            )
+
+    y_max = max_value if max_value is not None else max_seen
+    if y_max <= 0:
+        y_max = 1.0
+    plot_y_max = max(y_max * 1.14, max_seen * 1.18 if max_seen > 0 else 1.0)
+
+    ax.set_title(title, fontsize=22, fontweight="bold", color="#102a43", pad=14)
+    ax.set_xlabel("Chi so danh gia", fontsize=12, fontweight="bold", color="#334155")
+    ax.set_ylabel("Gia tri", fontsize=12, fontweight="bold", color="#334155")
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(metric_labels, fontsize=11, color="#627d98")
+    ax.set_ylim(0, plot_y_max)
+    ax.tick_params(axis="y", labelsize=10, colors="#627d98")
+    ax.grid(axis="y", color="#e7edf3")
+    ax.grid(axis="x", visible=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#bcccdc")
+    ax.spines["bottom"].set_color("#bcccdc")
+    ax.legend(title="Cau hinh", frameon=False, fontsize=10, title_fontsize=10, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+
+    fig.tight_layout()
+    return figure_to_image(fig)
+
+
 def load_font(size: int, *, bold: bool = False) -> ImageFont.ImageFont:
     candidates = [
         "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
@@ -799,6 +909,107 @@ def build_metric_line_chart_image(
     return image
 
 
+def build_grouped_bar_chart_image(
+    title: str,
+    metric_labels: Sequence[str],
+    run_labels: Sequence[str],
+    values_by_run: Sequence[Sequence[Optional[float]]],
+    *,
+    width: int = 1200,
+    height: int = 500,
+    max_value: Optional[float] = None,
+) -> Image.Image:
+    if get_chart_backend() == "seaborn":
+        return build_grouped_bar_chart_image_seaborn(
+            title,
+            metric_labels,
+            run_labels,
+            values_by_run,
+            width=width,
+            height=height,
+            max_value=max_value,
+        )
+
+    image = Image.new("RGB", (width, height), "#ffffff")
+    draw = ImageDraw.Draw(image)
+    title_font = load_font(24, bold=True)
+    label_font = load_font(12)
+    value_font = load_font(10, bold=True)
+    legend_font = load_font(12)
+
+    if not metric_labels or not run_labels or not values_by_run:
+        draw_centered_text(draw, width / 2, height / 2 - 8, "Khong co du lieu de ve bieu do", title_font, "#334155")
+        return image
+
+    colors = ["#ef4444", "#22c55e", "#3b82f6", "#f59e0b", "#a855f7", "#14b8a6"]
+    left = 72
+    right = 170
+    top = 56
+    bottom = 90
+    plot_width = width - left - right
+    plot_height = height - top - bottom
+    num_metrics = len(metric_labels)
+    num_runs = len(run_labels)
+    slot = plot_width / max(num_metrics, 1)
+    group_width = slot * 0.8
+    bar_width = min(36.0, group_width / max(num_runs, 1))
+    max_seen = max(
+        (float(value) for run_values in values_by_run for value in run_values if value is not None),
+        default=0.0,
+    )
+    y_max = max_value if max_value is not None else max_seen
+    if y_max <= 0:
+        y_max = 1.0
+
+    draw_centered_text(draw, width / 2, 14, title, title_font, "#102a43")
+
+    for tick in range(6):
+        tick_value = y_max * tick / 5
+        y = top + plot_height - (plot_height * tick / 5)
+        draw.line([(left, y), (width - right, y)], fill="#e7edf3", width=1)
+        tick_text = f"{tick_value:.2f}"
+        tw, th = text_size(draw, tick_text, label_font)
+        draw.text((left - tw - 12, y - th / 2), tick_text, font=label_font, fill="#627d98")
+
+    draw.line([(left, top + plot_height), (width - right, top + plot_height)], fill="#bcccdc", width=2)
+
+    for metric_idx, metric_label in enumerate(metric_labels):
+        center_x = left + metric_idx * slot + slot / 2
+        group_left = center_x - group_width / 2
+        draw_centered_text(draw, center_x, height - 44, metric_label, label_font, "#627d98")
+        for run_idx, run_label in enumerate(run_labels):
+            raw_value = values_by_run[run_idx][metric_idx]
+            value = 0.0 if raw_value is None else float(raw_value)
+            bar_left = group_left + run_idx * bar_width
+            bar_height = 0.0 if y_max == 0 else (value / y_max) * plot_height
+            bar_top = top + plot_height - bar_height
+            draw.rectangle(
+                [(bar_left, bar_top), (bar_left + bar_width * 0.92, top + plot_height)],
+                fill=colors[run_idx % len(colors)],
+                outline="#111827",
+                width=1,
+            )
+            if raw_value is not None:
+                draw_centered_text(
+                    draw,
+                    bar_left + bar_width * 0.46,
+                    bar_top - 18,
+                    f"{value:.3f}",
+                    value_font,
+                    "#102a43",
+                )
+
+    legend_x = width - right + 18
+    legend_y = top + 12
+    for run_idx, run_label in enumerate(run_labels):
+        color = colors[run_idx % len(colors)]
+        y = legend_y + run_idx * 28
+        draw.rectangle([(legend_x, y), (legend_x + 16, y + 16)], fill=color, outline="#111827", width=1)
+        draw.text((legend_x + 24, y - 1), run_label, font=legend_font, fill="#334155")
+
+    return image
+
+
 def make_output_stem(base_name: str, jsonl_path: Optional[Path], csv_path: Optional[Path]) -> str:
     if base_name:
         return base_name
@@ -837,7 +1048,7 @@ def write_detail_csv(path: Path, rows: List[Dict[str, str]]) -> None:
         writer.writerows(rows)
 
 
-def process_run_config(run_config: Dict[str, str]) -> None:
+def process_run_config(run_config: Dict[str, str]) -> Dict[str, Any]:
     jsonl_value = run_config.get("jsonl", "").strip()
     csv_value = run_config.get("csv", "").strip()
     out_dir_value = run_config.get("out_dir", "").strip()
@@ -953,17 +1164,57 @@ def process_run_config(run_config: Dict[str, str]) -> None:
     print(f"Da ghi bieu do: {retrieval_trend_image_path}")
     print(f"Da ghi bieu do: {quality_trend_image_path}")
 
+    return {
+        "run_label": title_prefix or output_stem,
+        "summary": summary,
+        "out_dir": out_dir,
+        "image_ext": image_ext,
+    }
+
+
+def build_cross_run_comparison_charts(run_results: Sequence[Dict[str, Any]]) -> None:
+    usable_runs = [run for run in run_results if run.get("summary")]
+    if len(usable_runs) < 2:
+        return
+
+    run_labels = [str(run.get("run_label") or "run") for run in usable_runs]
+    image_ext = str(usable_runs[0].get("image_ext") or "png")
+    out_dir = resolve_output_path("server/RAG/danh_gia_rag/tong_hop_bieu_do")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    maybe_report_chart_backend()
+    for group in COMPARISON_GROUPS:
+        metrics = group["metrics"]
+        metric_labels = [label for _column, label in metrics]
+        values_by_run = [
+            [safe_float((run.get("summary") or {}).get(column)) for column, _label in metrics]
+            for run in usable_runs
+        ]
+        image = build_grouped_bar_chart_image(
+            group["title"],
+            metric_labels,
+            run_labels,
+            values_by_run,
+            max_value=group.get("max_value"),
+        )
+        output_path = out_dir / f"{group['key']}.{image_ext}"
+        write_image(output_path, image, image_ext)
+        print(f"Da ghi bieu do tong hop: {output_path}")
+
 
 def main() -> None:
     if not RUN_CONFIGS:
         raise ValueError("RUN_CONFIGS dang rong. Hay them it nhat 1 cau hinh.")
 
     total_runs = len(RUN_CONFIGS)
+    run_results: List[Dict[str, Any]] = []
     for idx, run_config in enumerate(RUN_CONFIGS, start=1):
         run_name = run_config.get("title", "").strip() or run_config.get("base_name", "").strip() or f"run_{idx}"
         print("=" * 80)
         print(f"Dang xu ly cau hinh {idx}/{total_runs}: {run_name}")
-        process_run_config(run_config)
+        run_results.append(process_run_config(run_config))
+
+    build_cross_run_comparison_charts(run_results)
 
 
 if __name__ == "__main__":

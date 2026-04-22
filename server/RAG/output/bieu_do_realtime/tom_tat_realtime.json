@@ -1,0 +1,87 @@
+{
+  "rows": 10,
+  "routes": {
+    "legal_rag": 10
+  },
+  "latency_ms": {
+    "mean": 14510.13,
+    "median": 13075.77,
+    "max": 21464.62,
+    "p95": 20390.76
+  },
+  "retrieval_time_ms": {
+    "mean": 11954.87,
+    "median": 10844.74,
+    "max": 16687.35,
+    "p95": 16530.03
+  },
+  "rerank_time_ms": {
+    "mean": 10242.52,
+    "median": 9457.6,
+    "max": 13710.78,
+    "p95": 13283.52
+  },
+  "gen_time_ms": {
+    "mean": 2552.4,
+    "median": 2287.19,
+    "max": 4770.92,
+    "p95": 3855.67
+  },
+  "source_count": {
+    "mean": 3.0,
+    "median": 3.0,
+    "max": 3.0,
+    "p95": 3.0
+  },
+  "global_doc_hits": {
+    "mean": 0.0,
+    "median": 0.0,
+    "max": 0.0,
+    "p95": 0.0
+  },
+  "legal_results": {
+    "mean": 10.0,
+    "median": 10.0,
+    "max": 10.0,
+    "p95": 10.0
+  },
+  "candidate_results": {
+    "mean": 10.0,
+    "median": 10.0,
+    "max": 10.0,
+    "p95": 10.0
+  },
+  "final_hits": {
+    "mean": 5.0,
+    "median": 5.0,
+    "max": 5.0,
+    "p95": 5.0
+  },
+  "intent_match_count": {
+    "mean": 7.3,
+    "median": 8.5,
+    "max": 10.0,
+    "p95": 10.0
+  },
+  "global_doc_top_score": {
+    "mean": 0.0,
+    "median": 0.0,
+    "max": 0.0,
+    "p95": 0.0
+  },
+  "used_fallback": {
+    "true_rate": 0.0
+  },
+  "answer_insufficient": {
+    "true_rate": 0.0
+  },
+  "used_global_docs": {
+    "true_rate": 0.0
+  },
+  "topic_mismatch": {
+    "true_rate": 0.0
+  },
+  "retrieval_skipped": {
+    "true_rate": 0.0
+  }
+}
