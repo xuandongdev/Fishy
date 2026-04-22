@@ -551,7 +551,7 @@ class RetrievalService:
         query_km: Optional[float],
     ) -> int:
         count = 0
-        for item in hits[:3]:
+        for item in hits[:10]:
             text = normalize_legal_text(f"{item.get('label') or ''} {item.get('content') or ''}")
             matched = False
             if query_vehicle_type != "khac" and self._vehicle_text_bonus(query_vehicle_type, text) > 0:
