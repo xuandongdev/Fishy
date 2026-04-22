@@ -695,7 +695,7 @@ class RetrievalService:
             return 0.12
         if query_action == "qua_toc_do" and re.search(r"\b(toc do|km/h|km)\b", normalized):
             return 0.12
-        if query_action == "nong_do_con" and re.search(r"\b(nong do con|con|bia ruou)\b", normalized):
+        if query_action == "nong_do_con" and re.search(r"\b(nong do con|co con|bia ruou)\b", normalized):
             return 0.12
         if query_action == "khong_doi_mu" and re.search(r"\b(mu bao hiem|doi mu)\b", normalized):
             return 0.12

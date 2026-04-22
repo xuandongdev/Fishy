@@ -26,6 +26,8 @@ class RAGSettings:
     rerank_model_name: str
     rerank_candidate_count: int
     rerank_final_top_k: int
+    chat_metrics_csv_enabled: bool
+    chat_metrics_csv_path: str
 
     @classmethod
     def from_env(cls) -> "RAGSettings":
@@ -50,6 +52,8 @@ class RAGSettings:
             rerank_model_name=os.getenv("RERANK_MODEL_NAME", "BAAI/bge-reranker-v2-m3").strip(),
             rerank_candidate_count=int(os.getenv("RERANK_CANDIDATE_COUNT", "10")),
             rerank_final_top_k=int(os.getenv("RERANK_FINAL_TOP_K", "5")),
+            chat_metrics_csv_enabled=os.getenv("CHAT_METRICS_CSV_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+            chat_metrics_csv_path=os.getenv("CHAT_METRICS_CSV_PATH", "server/RAG/output/live_chat_metrics.csv").strip(),
         )
 
     @property

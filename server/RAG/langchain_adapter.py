@@ -596,9 +596,16 @@ class LangChainAdapter:
         action: str,
         rewrite_confidence: float,
     ) -> Dict[str, Any]:
+        answer = self._build_safe_speed_response(
+            retrieval=retrieval,
+            final_hits=final_hits,
+            query_vehicle_type=query_vehicle_type,
+            query_km=query_km,
+            action=action,
+        ) or "Chua du can cu trong du lieu retrieve duoc de ket luan chinh xac."
         return {
             "success": True,
-            "answer": "Chua du can cu trong du lieu retrieve duoc de ket luan chinh xac.",
+            "answer": answer,
             "sources": [],
             "used_fallback": retrieval.get("used_fallback", False),
             "evaluation": self._build_evaluation_payload(
@@ -626,6 +633,63 @@ class LangChainAdapter:
                 "rewrite_confidence": rewrite_confidence,
             },
         }
+
+    def _build_safe_speed_response(
+        self,
+        retrieval: Dict[str, Any],
+        final_hits: List[Dict[str, Any]],
+        query_vehicle_type: str,
+        query_km: Any,
+        action: str,
+    ) -> Optional[str]:
+        if action != "qua_toc_do" or query_km is None:
+            return None
+        fallback_reason = str(retrieval.get("final_fallback_reason") or "")
+        if fallback_reason != "missing_km_match":
+            return None
+
+        candidates = list(final_hits or []) + list(retrieval.get("candidate_results", []) or [])
+        matching_speed_hits = []
+        for item in candidates:
+            min_km = item.get("min_km")
+            if min_km is None:
+                continue
+            text = self._normalize_text(f"{item.get('label') or ''} {item.get('content') or ''}")
+            if "toc do" not in text and "km" not in text:
+                continue
+            if query_vehicle_type == "xe_may" and "xe may" not in text and "mo to" not in text:
+                continue
+            if query_vehicle_type == "o_to" and "o to" not in text and "oto" not in text:
+                continue
+            matching_speed_hits.append(item)
+
+        if not matching_speed_hits:
+            return None
+
+        try:
+            min_supported = min(float(item.get("min_km")) for item in matching_speed_hits if item.get("min_km") is not None)
+            query_km_value = float(query_km)
+        except (TypeError, ValueError):
+            return None
+
+        if query_km_value >= min_supported:
+            return None
+
+        vehicle_text = {
+            "xe_may": "Xe may",
+            "o_to": "Xe o to",
+            "xe_dap": "Xe dap",
+            "di_bo": "Nguoi di bo",
+        }.get(query_vehicle_type, "Truong hop nay")
+        query_km_text = self._format_km_value(query_km_value)
+        min_supported_text = self._format_km_value(min_supported)
+        return (
+            f"{vehicle_text} vuot qua {query_km_text} km/h chua thay khop voi muc qua toc do nao trong du lieu retrieve duoc. "
+            f"Cac muc xu phat qua toc do hien tim thay bat dau tu {min_supported_text} km/h tro len."
+        )
+
+    def _format_km_value(self, value: float) -> str:
+        return str(int(value)) if float(value).is_integer() else str(value)
 
     async def handle_general(self, question: str, session_id: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
         logger.info("general route start | session_id=%s", session_id)

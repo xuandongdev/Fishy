@@ -63,6 +63,7 @@ app.include_router(
         retrieval_service,
         langchain_adapter=langchain_adapter,
         global_doc_service=global_doc_service,
+        settings=settings,
     )
 )
 
